@@ -1,0 +1,140 @@
+# agent-feedback
+
+Give visual feedback to [Claude Code](https://claude.com/claude-code) sessions the way you would to a colleague: grab a screenshot, draw on it, write a note, hand it to a running session. The session picks it up in its chat, fixes exactly that, writes down what it changed, and you accept the result or send it back.
+
+A small macOS menu bar app, three Claude Code hooks and one skill. Everything is plain files: no server, no account, no database.
+
+![Editor: mark up a screenshot, pick the session, write a note](docs/editor.png)
+
+![Inbox: everything you sent, with status, questions and results](docs/inbox.png)
+
+## What it does
+
+**Capture**
+- Global shortcut (default **⌃⌥S**, changeable in the menu) for an area or window screenshot. Alternatively: image from the clipboard, an image file, drag & drop, or a text-only item.
+- Editor: select/move/delete marks, arrow, box, pen, highlighter, numbered markers ①②③, text; undo/redo; zoom. Several images per item, each with its own context (time, app, Chrome URL and tab title, window size, light/dark mode). Pick, delete or clear images in the thumbnail strip.
+- Pick the target session from the sessions that are currently running (project, title, last prompt), write a note (“1 too far right, 2 wrong colour”), **⌘↩**.
+
+**Hand-off**
+- If the session is still running, the item lands **in its chat** as a message (Claude Code's local session messaging, sent by a short `claude -p --model haiku` call with the `SendMessage` tool). You see it work and can step in.
+- If the session has ended, a background fork of it (`claude -p --resume <id> --fork-session`) does the job with the same context. Without a known session, a fresh one starts in the project.
+- One job at a time per feedback folder, so two agents never edit the same files at once. Waiting and running jobs can be cancelled; failed runs show a readable reason and can be retried.
+
+**Review**
+- The agent only ever reports *implemented*, *nothing to do* or a *question*. You check the result yourself and press **Looks Good** (accept) or **Rework** (send back with a note; screenshot and history stay attached).
+- Questions are answered in a small dialog; “Continue Work” puts the item back in the queue.
+- The **inbox** window lists every item from every known folder, also for sessions that have ended: preview, project, session, status, the agent's last change or question. Filter “for you” / “for agents” / “all”, reassign to another running session, edit again, delete one, a selection or everything (permanently, after a confirmation).
+- The menu bar shows what needs attention: `📸 ⏳2 ❓1 ✅3` (waiting for agents, questions, to review).
+
+## Requirements
+
+- macOS 14.4 or later
+- Xcode Command Line Tools (`swiftc`): `xcode-select --install`
+- `jq`: `brew install jq`
+- Claude Code CLI (`claude`), signed in. Delivery into a running chat needs a version with local session messaging (the `SendMessage` tool); otherwise items are worked on in the background.
+
+## Install
+
+```bash
+git clone https://github.com/bendemartin97/agent-feedback.git
+cd agent-feedback
+./install.sh --hooks
+```
+
+This builds `~/Applications/AgentFeedback.app`, starts it at login (LaunchAgent), links the hooks to `~/.claude/agent-feedback/bin/` and the skill to `~/.claude/skills/feedback`, and adds three hook entries to `~/.claude/settings.json` (a backup is written next to it). Without `--hooks` the entries are printed for you to add yourself.
+
+On the first screenshot macOS asks for **Screen Recording**, on the first screenshot taken in Chrome for **Automation** (to read the tab URL). If a code-signing identity “Apple Development” exists, the app is signed with it so these permissions survive rebuilds; otherwise it is signed ad hoc and macOS may ask again after each build. Set `AGENT_FEEDBACK_BUNDLE_ID` for `build.sh`/`uninstall.sh` to use your own bundle identifier.
+
+Sessions show up in the app once you have sent at least one prompt in them after installing.
+
+`./uninstall.sh` removes the app, the LaunchAgent and the links; your feedback folders and settings stay.
+
+## Settings
+
+Optional, in `~/.claude/agent-feedback/config.json`:
+
+```json
+{
+  "workspaces": "~/work/workspaces",
+  "claude": "/custom/path/to/claude"
+}
+```
+
+- `workspaces`: if you keep several checkouts of one task side by side (`<workspaces>/<name>/<repo-a>`, `<workspaces>/<name>/<repo-b>`), all sessions under `<workspaces>/<name>` share one feedback folder `<workspaces>/<name>/feedback`. Without it, feedback lives in `<project>/.feedback` (with a `.gitignore`, so it never ends up in git).
+- `claude`: only needed if the CLI is not in `~/.local/bin`, `~/.claude/local`, `/opt/homebrew/bin` or `/usr/local/bin`.
+
+Optional session names: if `~/.claude/agent-feedback/labels.json` exists (`{"<session_id>": {"name": "…", "headline": "…"}}`), the picker shows those names, for example from a desktop companion that already names your sessions.
+
+## Using it from the agent side
+
+In a session, say **“work through feedback”**, or simply wait: items sent with “Send to the session now” arrive as a chat message. A prompt hook also reminds the agent of open items assigned to it. The `feedback` skill tells the agent to make exactly the requested change, skip review and verification steps (you review visually), and append a result block to the item.
+
+## File format
+
+Each item is a Markdown file plus images in the feedback folder:
+
+```
+<folder>/
+  inbox/   waiting for an agent or for your answer
+  done/    implemented by the agent, waiting for (or past) your review
+  edit/    originals, marks (*.marks.json) and per-image context (pages.json) for re-editing
+```
+
+```markdown
+---
+session: my-app — Fix booking form
+session_id: 7d857d5b-…
+start: /Users/me/code/my-app
+project: my-app
+time: 2026-10-27 15:13:29
+app: Google Chrome
+url: http://localhost:3000/bookings/new
+tab: New booking
+window: 1512×945
+appearance: dark
+branch: my-app=feature/booking-form
+images: 2026-10-27_151329.png, 2026-10-27_151329-2.png
+mode: now
+image-1: 2026-10-27_151329.png · 15:13:29 · Google Chrome · http://localhost:3000/bookings/new · 1512×945 · dark
+image-2: 2026-10-27_151329-2.png · 15:13:41 · Google Chrome · http://localhost:3000/bookings · 1512×945 · dark
+---
+
+1 "Add customer" floats far right, 2 wrong colour
+
+## Result 2026-10-27 15:20
+**Status:** implemented
+**Cause:** …
+**Change:** …
+**Files:** `src/BookingForm.vue:42`
+
+## Rework 2026-10-27 15:31
+Slightly darker please.
+
+**Status:** rework
+```
+
+The status of an item is the last `**Status:**` line: `implemented`, `nothing to do`, `open (question)` with a `**Question:**` line, `answered`, `rework`, `accepted`, `failed` with an `**Error:**` line. Blocks (`## Result`, `## Answer`, `## Rework`, `## Accepted`, `## Run failed`) are only ever appended. Items written by earlier German versions (`bilder:`, `## Ergebnis`, `**Status:** umgesetzt` …) are still read.
+
+## How it fits together
+
+| Part | Role |
+|---|---|
+| `app/` | Menu bar app (Swift/AppKit, no dependencies). `./build.sh` builds and (re)starts it. |
+| `hooks/session.sh` | `UserPromptSubmit` / `SessionEnd`: registers running sessions in `~/.claude/agent-feedback/sessions/`. |
+| `hooks/feedback-hint.sh` | `UserPromptSubmit`: lists the open items assigned to this session. |
+| `hooks/feedback-dir.sh`, `hooks/common.sh` | Folder rule and settings, shared by hooks and skill. |
+| `skills/feedback/` | The skill agents follow. |
+| `tests/hooks.sh`, `tests/model.sh` | Tests for the hooks and for storage, status and re-editing. |
+
+Run the tests with `./tests/hooks.sh && ./tests/model.sh`. `./scripts/screenshots.sh` regenerates the images in `docs/` from demo data.
+
+## Limitations
+
+- macOS only.
+- Running sessions are discovered through Claude Code's local session registry (`~/.claude/sessions/*.json`). That file is not a public API; if it changes, delivery falls back to background forks.
+- A running session cannot be stopped from outside; “Cancel” only frees its place in the queue.
+- Global shortcuts need ⌃ or ⌘: since macOS 15, shortcuts with only ⌥ or ⌥⇧ register fine but never fire.
+
+## License
+
+MIT, see [LICENSE](LICENSE).

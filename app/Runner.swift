@@ -1,0 +1,240 @@
+import AppKit
+
+/// Works through items, one after another per feedback folder (i.e. per workspace), so two agents don't
+/// change the same files out from under each other.
+///
+/// If the target session is still running, it gets the task as a message in its chat (Claude Code peer message,
+/// delivered by a short `claude -p` with SendMessage): you can see there that and how it works on it.
+/// The task is done as soon as the `.md` has a result. If the session no longer runs, a fork of it works
+/// in the background (`--resume … --fork-session`); without a known session, a fresh one in the project.
+final class Runner {
+    private struct Job {
+        let md: URL
+        let target: Target
+        let cwd: String
+    }
+
+    /// Running task: either our own process or a session whose result we wait for.
+    private struct Run {
+        let job: Job
+        var process: Process?
+        var peer: String?
+        /// Content of the `.md` at start; only done once it has changed (matters for "Try again").
+        var startText = ""
+    }
+
+    private let store: FeedbackStore
+    private var queues: [String: [Job]] = [:]
+    private var running: [String: Run] = [:]
+    private var cancelled: Set<String> = []
+    var onChange: (() -> Void)?
+
+    init(store: FeedbackStore) { self.store = store }
+
+    func isQueued(_ md: URL) -> Bool { queues.values.contains { $0.contains { same($0.md, md) } } }
+    func isRunning(_ md: URL) -> Bool { running.values.contains { same($0.job.md, md) } }
+    /// Name of the session in whose chat the item is currently being worked on.
+    func peer(of md: URL) -> String? { running.values.first { same($0.job.md, md) }?.peer }
+
+    /// Agents move the `.md` to `done/`; the file name stays.
+    private func same(_ a: URL, _ b: URL) -> Bool {
+        a.lastPathComponent == b.lastPathComponent && a.deletingLastPathComponent().deletingLastPathComponent() == b.deletingLastPathComponent().deletingLastPathComponent()
+    }
+
+    func enqueue(_ item: FeedbackItem) {
+        guard !isQueued(item.md), !isRunning(item.md) else { return }
+        // Without a start directory (older items) the session can't be resumed: start fresh in the project.
+        let resumable = !item.start.isEmpty
+        let target = resumable || !item.sessionID.isEmpty && Self.liveSession(item.sessionID) != nil
+            ? item.target : Target(id: "", start: "", label: item.sessionLabel)
+        let job = Job(md: item.md, target: target, cwd: resumable ? item.start : item.dir.deletingLastPathComponent().path)
+        queues[item.dir.path, default: []].append(job)
+        next(item.dir.path)
+        onChange?()
+    }
+
+    /// Remove queued jobs, terminate our own processes. A running session can't be stopped from outside;
+    /// the queue just frees the slot.
+    func cancel(_ md: URL) {
+        for key in queues.keys { queues[key]?.removeAll { same($0.md, md) } }
+        if let (key, run) = running.first(where: { same($0.value.job.md, md) }) {
+            if let p = run.process {
+                cancelled.insert(key)
+                p.terminate()
+            } else {
+                running[key] = nil
+                next(key)
+            }
+        }
+        onChange?()
+    }
+
+    /// Called regularly from outside: frees the slot as soon as a session has written its result.
+    func tick() {
+        var changed = false
+        for (key, run) in running where run.process == nil {
+            let dir = URL(fileURLWithPath: key)
+            let name = run.job.md.lastPathComponent
+            let item = ["inbox", "done"].lazy.compactMap { FeedbackItem(md: dir.appendingPathComponent($0).appendingPathComponent(name)) }.first
+            let finished = item.map { $0.text != run.startText && [.implemented, .nothingToDo, .question, .accepted, .failed].contains($0.status) } ?? true
+            if finished {
+                running[key] = nil
+                next(key)
+                changed = true
+            }
+        }
+        if changed { onChange?() }
+    }
+
+    private func next(_ key: String) {
+        guard running[key] == nil, var queue = queues[key], !queue.isEmpty else { return }
+        let job = queue.removeFirst()
+        queues[key] = queue
+        if !job.target.id.isEmpty, let peer = Self.liveSession(job.target.id) {
+            deliver(job, to: peer, key: key)
+        } else {
+            fork(job, key: key)
+        }
+    }
+
+    private static var env: [String: String] {
+        var env = ProcessInfo.processInfo.environment
+        env["PATH"] = "\(homeURL.path)/.local/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+        env["SHELL"] = "/bin/zsh"
+        env["AGENT_FEEDBACK_RUN"] = "1"
+        return env
+    }
+
+    /// Peer name of a running interactive session from `~/.claude/sessions/<pid>.json`.
+    static func liveSession(_ id: String) -> String? {
+        let dir = homeURL.appendingPathComponent(".claude/sessions")
+        for name in (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? [] where name.hasSuffix(".json") {
+            guard let data = try? Data(contentsOf: dir.appendingPathComponent(name)),
+                  let j = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+                  j["sessionId"] as? String == id, j["kind"] as? String == "interactive",
+                  let pid = j["pid"] as? Int32, kill(pid, 0) == 0,
+                  let peer = j["name"] as? String else { continue }
+            return peer
+        }
+        return nil
+    }
+
+    /// Sends the task into the running session's chat and then waits for its result (see `tick`).
+    private func deliver(_ job: Job, to peer: String, key: String) {
+        running[key] = Run(job: job, process: nil, peer: peer, startText: (try? String(contentsOf: job.md, encoding: .utf8)) ?? "")
+        let message = Self.message(for: job.md)
+        let prompt = """
+        Use the SendMessage tool and send this exact message to the session "\(peer)":
+        \(message)
+        Then reply only with OK, or with ERROR: <reason> if sending failed.
+        """
+        DispatchQueue.global(qos: .userInitiated).async {
+            let (ok, output) = Self.claude(["-p", "--model", "haiku", "--output-format", "json", prompt], cwd: FileManager.default.temporaryDirectory.path)
+            let sent = ok && output.trimmingCharacters(in: .whitespacesAndNewlines).uppercased().hasPrefix("OK")
+            DispatchQueue.main.async {
+                guard !sent else { self.onChange?(); return }
+                self.running[key] = nil
+                self.store.fail(job.md, message: "Message to the session \(peer) was not delivered: \(output.prefix(200)). Try again or assign to another session.")
+                self.next(key)
+                self.onChange?()
+            }
+        }
+    }
+
+    /// Message for the chat: note and context readable up front, so the chat shows what it is about.
+    private static func message(for md: URL) -> String {
+        let item = FeedbackItem(md: md)
+        let note = (item?.note ?? "").replacingOccurrences(of: "\n", with: " ")
+        /// Text after the last of these headings (English or the German one of older items), nil if none.
+        func after(_ headings: String...) -> String? {
+            guard let text = item?.text,
+                  let hit = headings.compactMap({ text.range(of: $0, options: .backwards) }).max(by: { $0.lowerBound < $1.lowerBound })
+            else { return nil }
+            return String(text[hit.upperBound...])
+        }
+        let rework = after("## Rework", "## Nachbesserung")
+        let answer = after("## Answer", "## Antwort")
+        func clip(_ t: String) -> String {
+            let one = t.split(separator: "\n").dropFirst().filter { !$0.hasPrefix("**Status:**") }.joined(separator: " ")
+            return one.count > 300 ? String(one.prefix(300)) + "…" : one
+        }
+        let who = NSFullUserName().split(separator: " ").first.map(String.init) ?? "you"
+        var lines = ["📸 Feedback from \(who): “\(note.count > 400 ? String(note.prefix(400)) + "…" : note)”"]
+        if let item {
+            var ctx: [String] = []
+            if !item.images.isEmpty { ctx.append("\(item.images.count) Screenshot\(item.images.count == 1 ? "" : "s")") }
+            if !item.field("url").isEmpty { ctx.append(item.field("url")) }
+            if !ctx.isEmpty { lines.append(ctx.joined(separator: " · ")) }
+            if item.status == .rework, let r = rework { lines.append("Rework: \(clip(r))") }
+            if item.status == .answered, let a = answer { lines.append("Answer to your question: \(clip(a))") }
+        }
+        lines.append("Please work through this now with the `feedback` skill – only this item: \(md.path) – write the result as usual as a `## Result` block into the .md. No reply to the sender is needed.")
+        return lines.joined(separator: "\n")
+    }
+
+    /// Works through the item in the background: fork of the session, otherwise a fresh session in the project.
+    private func fork(_ job: Job, key: String) {
+        let prompt = "work through feedback – only this item: \(job.md.path)"
+        let args = job.target.id.isEmpty
+            ? ["-p", "--output-format", "json", prompt]
+            : ["-p", "--resume", job.target.id, "--fork-session", "--output-format", "json", prompt]
+        let p = Process()
+        running[key] = Run(job: job, process: p, peer: nil)
+        DispatchQueue.global(qos: .userInitiated).async {
+            let (ok, output) = Self.claude(args, cwd: job.cwd, process: p)
+            DispatchQueue.main.async {
+                self.running[key] = nil
+                if self.cancelled.remove(key) == nil, !ok {
+                    self.store.fail(job.md, message: Self.explain(output, status: p.isRunning ? -1 : p.terminationStatus, resumed: !job.target.id.isEmpty))
+                }
+                self.next(key)
+                self.onChange?()
+            }
+        }
+    }
+
+    /// Starts `claude` and returns success plus `result` (or stderr on errors). Blocking.
+    private static func claude(_ args: [String], cwd: String, process: Process = Process()) -> (Bool, String) {
+        let p = process
+        guard let claude = Config.claude else {
+            return (false, "claude CLI not found. Set its path under \"claude\" in ~/.claude/agent-feedback/config.json.")
+        }
+        p.executableURL = claude
+        p.arguments = args
+        p.currentDirectoryURL = URL(fileURLWithPath: cwd)
+        p.environment = env
+        let out = Pipe()
+        let errFile = FileManager.default.temporaryDirectory.appendingPathComponent("feedback-run-\(UUID().uuidString).log")
+        FileManager.default.createFile(atPath: errFile.path, contents: nil)
+        defer { try? FileManager.default.removeItem(at: errFile) }
+        p.standardOutput = out
+        p.standardError = try? FileHandle(forWritingTo: errFile)
+        do {
+            try p.run()
+        } catch {
+            return (false, "claude could not be started (\(error.localizedDescription)): \(claude.path)")
+        }
+        let data = out.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
+        let obj = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        let result = obj?["result"] as? String ?? ""
+        if p.terminationStatus != 0 || obj?["is_error"] as? Bool == true {
+            let err = String(data: (try? Data(contentsOf: errFile)) ?? Data(), encoding: .utf8) ?? ""
+            return (false, result.isEmpty ? err : result)
+        }
+        return (true, result)
+    }
+
+    /// Turns exit code and output into an understandable error message.
+    private static func explain(_ detail: String, status: Int32, resumed: Bool) -> String {
+        let text = detail.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "\n", with: " ")
+        let short = text.count > 300 ? String(text.prefix(300)) + "…" : text
+        if resumed, text.lowercased().contains("no conversation found") {
+            return "The session could not be resumed (not found in its start directory). Assign the item to a running session and try again."
+        }
+        if text.lowercased().contains("not logged in") || text.contains("/login") {
+            return "Claude is not logged in. Run `claude` once in the terminal and log in, then try again."
+        }
+        return short.isEmpty ? "Agent exited with exit code \(status), without output." : "Exit code \(status): \(short)"
+    }
+}

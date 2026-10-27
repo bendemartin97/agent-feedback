@@ -1,0 +1,13 @@
+name: test
+on: [push, pull_request]
+jobs:
+  test:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile app
+        run: swiftc -swift-version 5 app/*.swift -o /tmp/AgentFeedback
+      - name: Hook tests
+        run: ./tests/hooks.sh
+      - name: Model tests
+        run: ./tests/model.sh
