@@ -4,6 +4,10 @@ All notable changes to agent-feedback. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+### Added
+
+- Placing a number adds a line “n ” to the note, one below the other, ready to describe that spot. Numbers now count across all images of an item.
+
 ## [0.5.0] – 2026-10-28
 
 ### Added

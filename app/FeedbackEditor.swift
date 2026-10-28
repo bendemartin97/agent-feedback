@@ -9,6 +9,10 @@ final class MarkupCanvas: NSView, NSTextFieldDelegate {
     var color = NSColor.systemRed
     var onChange: (() -> Void)?
     var onCopy: (() -> Void)?
+    /// Next number across all images of the item; without it, per image.
+    var nextNumber: (() -> Int)?
+    /// A number was placed.
+    var onNumber: ((Int) -> Void)?
     private(set) var selected: Int?
     private var undoStack: [[Mark]] = []
     private var redoStack: [[Mark]] = []
@@ -97,8 +101,9 @@ final class MarkupCanvas: NSView, NSTextFieldDelegate {
         selected = nil
         switch tool {
         case .number:
-            let n = (page.marks.filter { $0.kind == .number }.compactMap { Int($0.text) }.max() ?? 0) + 1
+            let n = nextNumber?() ?? (page.marks.filter { $0.kind == .number }.compactMap { Int($0.text) }.max() ?? 0) + 1
             change { page.marks.append(Mark(kind: .number, color: color, width: 13 / zoom, points: [p], text: "\(n)")) }
+            onNumber?(n)
         case .text:
             editText(at: p, replacing: nil)
         case .marker:
@@ -449,6 +454,10 @@ final class FeedbackEditor: NSObject, NSWindowDelegate {
             c.tool = Self.toolKinds[max(0, tools.selectedSegment)]
             c.color = Self.palette[max(0, colors.selectedSegment)]
             c.onCopy = { [weak self] in self?.copyImage() }
+            c.nextNumber = { [weak self] in
+                (self?.canvases.flatMap(\.page.marks).filter { $0.kind == .number }.compactMap { Int($0.text) }.max() ?? 0) + 1
+            }
+            c.onNumber = { [weak self] n in self?.addNoteLine(for: n) }
             canvases.append(c)
         }
         current = canvases.count - 1
@@ -702,6 +711,14 @@ final class FeedbackEditor: NSObject, NSWindowDelegate {
             let lines = text.split(separator: "\n").count
             self?.flash("📋 \(lines) line\(lines == 1 ? "" : "s") of text copied")
         }
+    }
+
+    /// Starts a line “n ” in the note for a new number, below the existing text.
+    private func addNoteLine(for n: Int) {
+        var text = note.string
+        guard !text.split(separator: "\n").contains(where: { $0 == "\(n)" || $0.hasPrefix("\(n) ") }) else { return }
+        if !text.isEmpty && !text.hasSuffix("\n") { text += "\n" }
+        note.string = text + "\(n) "
     }
 
     @objc private func pickTool() {
