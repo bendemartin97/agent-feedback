@@ -3,8 +3,8 @@ import AppKit
 /// Works through items, one after another per feedback folder (i.e. per workspace), so two agents don't
 /// change the same files out from under each other.
 ///
-/// If the target session is still running, it gets the task as a message in its chat (Claude Code peer message,
-/// delivered by a short `claude -p` with SendMessage): you can see there that and how it works on it.
+/// If the target session is still running, it gets the task as a message in its chat (Claude Code: peer message,
+/// delivered by a short `claude -p` with SendMessage; Codex: `codex queue`): you can see there that and how it works on it.
 /// The task is done as soon as the `.md` has a result. If the session no longer runs, a fork of it works
 /// in the background (`--resume … --fork-session`); without a known session, a fresh one in the project.
 final class Runner {
@@ -46,7 +46,7 @@ final class Runner {
         // Without a start directory (older items) the session can't be resumed: start fresh in the project.
         let resumable = !item.start.isEmpty
         let target = resumable || !item.sessionID.isEmpty && Self.liveSession(item.sessionID) != nil
-            ? item.target : Target(id: "", start: "", label: item.sessionLabel)
+            ? item.target : Target(id: "", start: "", label: item.sessionLabel, agent: item.agent)
         let job = Job(md: item.md, target: target, cwd: resumable ? item.start : item.dir.deletingLastPathComponent().path)
         queues[item.dir.path, default: []].append(job)
         next(item.dir.path)
@@ -92,6 +92,8 @@ final class Runner {
         queues[key] = queue
         if !job.target.id.isEmpty, let live = Self.live(job.target.id) {
             deliver(job, to: live.peer, pid: live.pid, key: key)
+        } else if job.target.agent == "codex", Self.codexOpen(job.target.id) {
+            enqueueInCodex(job, key: key)
         } else {
             fork(job, key: key)
         }
@@ -106,7 +108,14 @@ final class Runner {
     }
 
     /// Peer name of a running interactive session from `~/.claude/sessions/<pid>.json`.
-    static func liveSession(_ id: String) -> String? { live(id)?.peer }
+    static func liveSession(_ id: String) -> String? { live(id)?.peer ?? (codexOpen(id) ? "the Codex session" : nil) }
+
+    /// A Codex session counts as open until its SessionEnd hook removed it (closed, archived or idle for 30 min).
+    private static func codexOpen(_ id: String) -> Bool {
+        guard !id.isEmpty, let data = try? Data(contentsOf: sessionsDir.appendingPathComponent("\(id).json")),
+              let j = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return false }
+        return j["agent"] as? String == "codex"
+    }
 
     private static func live(_ id: String) -> (peer: String, pid: Int32)? {
         let dir = homeURL.appendingPathComponent(".claude/sessions")
@@ -148,13 +157,31 @@ final class Runner {
         Then reply only with OK, or with ERROR: <reason> if sending failed.
         """
         DispatchQueue.global(qos: .userInitiated).async {
-            let args = ["-p", "--model", "haiku", "--output-format", "json"] + Self.permissionArgs(of: pid) + [prompt]
+            let args = ["-p", "--model", Config.model("transport") ?? "haiku", "--output-format", "json"] + Self.effort("transport")
+                + Self.permissionArgs(of: pid) + [prompt]
             let (ok, output) = Self.claude(args, cwd: FileManager.default.temporaryDirectory.path)
             let sent = ok && output.trimmingCharacters(in: .whitespacesAndNewlines).uppercased().hasPrefix("OK")
             DispatchQueue.main.async {
                 guard !sent else { self.onChange?(); return }
                 self.running[key] = nil
                 self.store.fail(job.md, message: "Message to the session \(peer) was not delivered: \(output.prefix(200)). Try again or assign to another session.")
+                self.next(key)
+                self.onChange?()
+            }
+        }
+    }
+
+    /// Queues the task in the open Codex session (`codex queue`, no model involved): it runs as the next turn,
+    /// right away if the session is idle. Then waits for the result like a Claude delivery.
+    private func enqueueInCodex(_ job: Job, key: String) {
+        running[key] = Run(job: job, process: nil, peer: "the Codex session", startText: (try? String(contentsOf: job.md, encoding: .utf8)) ?? "")
+        let args = ["queue", "--thread", job.target.id, "--message", Self.message(for: job.md)]
+        DispatchQueue.global(qos: .userInitiated).async {
+            let (ok, output) = Self.codex(args, cwd: job.cwd, process: Process(), lastMessage: false)
+            DispatchQueue.main.async {
+                guard !ok else { self.onChange?(); return }
+                self.running[key] = nil
+                self.store.fail(job.md, message: "Could not queue the item in the Codex session: \(output.prefix(200)). Try again or assign to another session.")
                 self.next(key)
                 self.onChange?()
             }
@@ -201,12 +228,14 @@ final class Runner {
             // Workspace sandbox plus the feedback folder, which can lie outside the checkout.
             let feedback = job.md.deletingLastPathComponent().deletingLastPathComponent().path
             let config = ["-c", "sandbox_mode=\"workspace-write\"", "-c", "sandbox_workspace_write.writable_roots=[\"\(feedback)\"]",
-                          "--skip-git-repo-check"]
+                          "--skip-git-repo-check"] + (Config.model("codex").map { ["-m", $0] } ?? [])
+                + (Config.raw("codex", in: "efforts").isEmpty ? [] : ["-c", "model_reasoning_effort=\"\(Config.raw("codex", in: "efforts"))\""])
             args = job.target.id.isEmpty ? ["exec"] + config + [prompt] : ["exec", "fork"] + config + [job.target.id, prompt]
         } else {
+            let model = (Config.model("claude").map { ["--model", $0] } ?? []) + Self.effort("claude")
             args = job.target.id.isEmpty
-                ? ["-p", "--output-format", "json", prompt]
-                : ["-p", "--resume", job.target.id, "--fork-session", "--output-format", "json", prompt]
+                ? ["-p", "--output-format", "json"] + model + [prompt]
+                : ["-p", "--resume", job.target.id, "--fork-session", "--output-format", "json"] + model + [prompt]
         }
         let p = Process()
         running[key] = Run(job: job, process: p, peer: nil)
@@ -255,8 +284,14 @@ final class Runner {
         return (true, result)
     }
 
+    /// `--effort <level>` for a Claude run if one is set under `efforts`.
+    private static func effort(_ key: String) -> [String] {
+        let e = Config.raw(key, in: "efforts")
+        return e.isEmpty ? [] : ["--effort", e]
+    }
+
     /// Starts `codex exec …` and returns success plus its last message (or stderr on errors). Blocking.
-    private static func codex(_ args: [String], cwd: String, process p: Process) -> (Bool, String) {
+    private static func codex(_ args: [String], cwd: String, process p: Process, lastMessage: Bool = true) -> (Bool, String) {
         guard let codex = Config.codex else {
             return (false, "codex CLI not found. Set its path under \"codex\" in ~/.claude/agent-feedback/config.json.")
         }
@@ -266,22 +301,24 @@ final class Runner {
         FileManager.default.createFile(atPath: errFile.path, contents: nil)
         defer { [last, errFile].forEach { try? FileManager.default.removeItem(at: $0) } }
         p.executableURL = codex
-        p.arguments = args + ["-o", last.path]
+        p.arguments = args + (lastMessage ? ["-o", last.path] : [])
         p.currentDirectoryURL = URL(fileURLWithPath: cwd)
         // npm/nvm installs need their node next to codex.
         var e = env
         e["PATH"] = codex.deletingLastPathComponent().path + ":" + (e["PATH"] ?? "")
         p.environment = e
         p.standardInput = FileHandle.nullDevice
-        p.standardOutput = FileHandle.nullDevice
+        let out = Pipe()
+        p.standardOutput = out
         p.standardError = try? FileHandle(forWritingTo: errFile)
         do {
             try p.run()
         } catch {
             return (false, "codex could not be started (\(error.localizedDescription)): \(codex.path)")
         }
+        let stdout = String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
         p.waitUntilExit()
-        let result = (try? String(contentsOf: last, encoding: .utf8)) ?? ""
+        let result = lastMessage ? (try? String(contentsOf: last, encoding: .utf8)) ?? "" : stdout
         guard p.terminationStatus == 0 else {
             let err = (try? String(contentsOf: errFile, encoding: .utf8)) ?? ""
             return (false, String(err.suffix(600)))

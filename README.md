@@ -13,12 +13,12 @@ A small macOS menu bar app, three hooks and one skill. Everything is plain files
 ## What it does
 
 **Capture**
-- Global shortcuts (changeable in the menu): **⌃⌥S** area or window screenshot, **⌃⌥⇧S** full screen, **⌃⌥T** recognize text in an area and copy it (OCR). Alternatively: image from the clipboard, an image file, drag & drop, or a text-only item.
+- Global shortcuts (changeable in Settings, ⌘,): **⌃⌥S** area or window screenshot, **⌃⌥⇧S** full screen, **⌃⌥T** recognize text in an area and copy it (OCR). Alternatively: image from the clipboard, an image file, drag & drop, or a text-only item.
 - Editor: toolbar with select/move/delete, arrow, line, box, ellipse, pen, highlighter, pixelate, numbered markers ①②③, text; undo/redo; zoom. Image actions (they close the editor without filing an item): copy (⌘C), save as PNG (⇧⌘S), pin on top, drag into other apps. Copy recognized text keeps it open. Several images per item, each with its own context (time, app, Chrome URL and tab title, window size, light/dark mode). Pick, delete or clear images in the thumbnail strip.
 - Pick the target session from the sessions that are currently running (project, title, last prompt), write a note (“1 too far right, 2 wrong colour”), **⌘↩**.
 
 **Hand-off**
-- If the session is still running, the item lands **in its chat** as a message (Claude Code's local session messaging, sent by a short `claude -p --model haiku` call with the `SendMessage` tool). You see it work and can step in.
+- If the session is still running, the item lands **in its chat** as a message (Claude Code's local session messaging, sent by a short `claude -p --model haiku` call, model configurable with the `SendMessage` tool). You see it work and can step in.
 - If the session has ended, a background fork of it (`claude -p --resume <id> --fork-session`) does the job with the same context. Without a known session, a fresh one starts in the project.
 - One job at a time per feedback folder, so two agents never edit the same files at once. Waiting and running jobs can be cancelled; failed runs show a readable reason and can be retried.
 
@@ -66,23 +66,28 @@ Sessions show up in the app once you have sent at least one prompt in them after
 agent-feedback setup --codex   # or ./install.sh --codex
 ```
 
-Links the skill to `~/.agents/skills/feedback` and adds the same hooks to `~/.codex/hooks.json` (backup next to it). Codex asks you to trust new hooks: run `/hooks` once in Codex and approve them. Codex sessions then show up in the picker with “(Codex)”. Codex has no session messaging, so “Send to the session now” works through a background fork (`codex exec fork <session> …`, sandbox `workspace-write` plus the feedback folder); a session that is still open also sees its open items before the next prompt.
+Links the skill to `~/.agents/skills/feedback` and adds the same hooks to `~/.codex/hooks.json` (backup next to it). Codex asks you to trust new hooks: run `/hooks` once in Codex and approve them. Codex sessions then show up in the picker with “(Codex)”. “Send to the session now” puts the item into an open Codex session with `codex queue` (no extra model call, no Claude subscription needed): it runs as the next turn, right away if the session is idle. Once the session has ended, a background fork works on it (`codex exec fork <session> …`, sandbox `workspace-write` plus the feedback folder).
 
 `./uninstall.sh` removes the app, the LaunchAgent and the links; your feedback folders and settings stay.
 
 ## Settings
 
-Optional, in `~/.claude/agent-feedback/config.json`:
+Open **Settings …** (⌘, or the menu bar menu) to change the shortcuts, the models and the paths below. They are stored in `~/.claude/agent-feedback/config.json` (shortcuts in the app's preferences), which you can also edit by hand:
 
 ```json
 {
   "workspaces": "~/work/workspaces",
-  "claude": "/custom/path/to/claude"
+  "claude": "/custom/path/to/claude",
+  "codex": "/custom/path/to/codex",
+  "models": { "transport": "haiku", "claude": "sonnet", "codex": "gpt-6-luna" },
+  "efforts": { "claude": "medium", "codex": "low" }
 }
 ```
 
 - `workspaces`: if you keep several checkouts of one task side by side (`<workspaces>/<name>/<repo-a>`, `<workspaces>/<name>/<repo-b>`), all sessions under `<workspaces>/<name>` share one feedback folder `<workspaces>/<name>/feedback`. Without it, feedback lives in `<project>/.feedback` (with a `.gitignore`, so it never ends up in git).
 - `claude`: only needed if the CLI is not in `~/.local/bin`, `~/.claude/local`, `/opt/homebrew/bin` or `/usr/local/bin`.
+- `codex`: only needed if the CLI is not in `/opt/homebrew/bin`, `/usr/local/bin`, `~/.local/bin` or an nvm install.
+- `models`: all optional, read on every run. `transport` is the model of the short `claude -p` call that delivers an item into a running Claude chat (default `haiku`). `claude` and `codex` are the models for background runs (forks); without them the CLI's default applies. The values are passed as given (`--model` / `-m`). `efforts` sets the reasoning effort per run type (`--effort` for Claude, `model_reasoning_effort` for Codex). The settings window lists the Claude aliases and current models and, for Codex, the models and effort levels from `codex debug models`.
 
 Optional session names: if `~/.claude/agent-feedback/labels.json` exists (`{"<session_id>": {"name": "…", "headline": "…"}}`), the picker shows those names, for example from a desktop companion that already names your sessions.
 

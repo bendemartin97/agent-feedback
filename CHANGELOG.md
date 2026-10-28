@@ -4,6 +4,12 @@ All notable changes to agent-feedback. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+### Added
+
+- Delivery into an open Codex session with `codex queue`: no model call and no Claude subscription needed; ended Codex sessions still get a background fork.
+- Settings window (⌘,): shortcuts, models and CLI paths in one place; replaces the “Change Shortcut” submenu.
+- Configurable models in `config.json`: `models.transport` (delivery into a running Claude chat, default `haiku`), `models.claude` and `models.codex` (background runs), plus `efforts` per run type. The settings window lists the current Claude models and the Codex models with their effort levels.
+
 ## [0.3.0] – 2026-10-28
 
 ### Added
