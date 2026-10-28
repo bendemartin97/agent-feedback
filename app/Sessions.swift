@@ -109,6 +109,7 @@ struct AgentSession {
 }
 
 /// Sessions of the last 8 hours, most recently active first. The SessionEnd hook deletes ended ones.
+/// pi sessions report their process instead: they are offered as long as it runs, however long they have been idle.
 func activeSessions() -> [AgentSession] {
     let fm = FileManager.default
     let cutoff = Date().addingTimeInterval(-8 * 3600)
@@ -119,12 +120,13 @@ func activeSessions() -> [AgentSession] {
     return files.compactMap { url -> AgentSession? in
         guard url.pathExtension == "json",
               let updated = try? url.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate,
-              updated > cutoff,
               let data = try? Data(contentsOf: url),
               let j = (try? JSONSerialization.jsonObject(with: data)) as? [String: String],
               let id = j["id"], let root = j["root"], !root.isEmpty else { return nil }
-        // pi sessions report their process; one that is gone (killed, terminal closed) is not offered any more.
-        if let pid = j["pid"].flatMap(Int32.init), kill(pid, 0) != 0 { return nil }
+        if let pid = j["pid"].flatMap(Int32.init) {
+            // One whose process is gone (killed, terminal closed) is not offered any more.
+            if kill(pid, 0) != 0 { return nil }
+        } else if updated <= cutoff { return nil }
         var s = AgentSession(id: id, root: root, start: j["start"] ?? root, project: j["project"] ?? "",
                              title: j["title"] ?? "", prompt: j["prompt"] ?? "", updated: updated)
         s.agent = j["agent"] ?? "claude"

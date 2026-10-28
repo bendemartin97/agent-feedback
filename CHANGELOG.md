@@ -4,6 +4,13 @@ All notable changes to agent-feedback. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [0.7.3] – 2026-10-29
+
+### Fixed
+
+- pi sessions show up in the picker as soon as they are open, not only after their first prompt (also after `/new`, `/resume` and `/fork`).
+- pi sessions stay in the picker as long as their process runs, also when idle for more than 8 hours.
+
 ## [0.7.2] – 2026-10-29
 
 ### Fixed
@@ -109,7 +116,8 @@ First version.
 - Hooks for session registration and open-item hints; skill `feedback` for the agent side.
 - Install and uninstall scripts, tests for hooks and model.
 
-[Unreleased]: https://github.com/bendemartin97/agent-feedback/compare/v0.7.2...HEAD
+[Unreleased]: https://github.com/bendemartin97/agent-feedback/compare/v0.7.3...HEAD
+[0.7.3]: https://github.com/bendemartin97/agent-feedback/compare/v0.7.2...v0.7.3
 [0.7.2]: https://github.com/bendemartin97/agent-feedback/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/bendemartin97/agent-feedback/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/bendemartin97/agent-feedback/compare/v0.6.0...v0.7.0
