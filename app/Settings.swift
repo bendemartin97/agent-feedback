@@ -14,7 +14,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSComboBoxDelegate, NSTe
     private var monitor: Any?
     /// Text fields and the config key they edit.
     private var fields: [(NSTextField, key: String, group: String?)] = []
-    /// Effort pop-ups per model key (`transport`, `claude`, `codex`), stored under `efforts`.
+    /// Effort pop-ups per model key (`transport`, `claude`, `codex`, `pi`), stored under `efforts`.
     private var efforts: [String: NSPopUpButton] = [:]
     private var catalog = ModelCatalog()
     private let hint = NSTextField(labelWithString: "")
@@ -95,11 +95,13 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSComboBoxDelegate, NSTe
         rows.append([label("Delivery into a Claude chat"), model("transport")])
         rows.append([label("Claude background runs"), model("claude")])
         rows.append([label("Codex background runs"), model("codex")])
+        rows.append([label("pi background runs"), model("pi")])
 
         rows.append([header("FOLDERS AND PATHS"), NSGridCell.emptyContentView])
         rows.append([label("Workspaces folder"), field("workspaces")])
         rows.append([label("claude CLI"), field("claude")])
         rows.append([label("codex CLI"), field("codex")])
+        rows.append([label("pi CLI"), field("pi")])
 
         hint.font = .systemFont(ofSize: 11)
         hint.textColor = .secondaryLabelColor
@@ -149,6 +151,7 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSComboBoxDelegate, NSTe
             case (nil, "workspaces"): f.placeholderString = "none – feedback lives in <project>/.feedback"
             case (nil, "claude"): f.placeholderString = Config.claude.map { "found: \($0.path.replacingOccurrences(of: homeURL.path, with: "~"))" } ?? "not found"
             case (nil, "codex"): f.placeholderString = Config.codex.map { "found: \($0.path.replacingOccurrences(of: homeURL.path, with: "~"))" } ?? "not found"
+            case (nil, "pi"): f.placeholderString = Config.pi.map { "found: \($0.path.replacingOccurrences(of: homeURL.path, with: "~"))" } ?? "not found"
             default: break
             }
         }
@@ -161,13 +164,13 @@ final class SettingsWindow: NSObject, NSWindowDelegate, NSComboBoxDelegate, NSTe
     }
 
     private func fillModels() {
-        for key in ["transport", "claude", "codex"] {
+        for key in ["transport", "claude", "codex", "pi"] {
             guard let box = modelField(key), let popup = efforts[key] else { continue }
-            let models = key == "codex" ? catalog.codex.map(\.slug) : catalog.claude
+            let models = key == "codex" ? catalog.codex.map(\.slug) : key == "pi" ? [] : catalog.claude
             box.removeAllItems()
             box.addItems(withObjectValues: models)
             let chosen = box.stringValue.isEmpty ? Config.raw(key, in: "models") : box.stringValue
-            let levels = key == "codex"
+            let levels = key == "pi" ? catalog.piThinking : key == "codex"
                 ? (catalog.codex.first { $0.slug == chosen }?.efforts ?? Array(Set(catalog.codex.flatMap(\.efforts))).sorted { ModelCatalog.rank($0) < ModelCatalog.rank($1) })
                 : catalog.claudeEfforts
             let stored = Config.raw(key, in: "efforts")
@@ -257,6 +260,8 @@ struct ModelCatalog {
     var claude = ["fable", "opus", "sonnet", "haiku", "claude-fable-5-1", "claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-5-5"]
     var claudeEfforts = ["low", "medium", "high", "xhigh", "max"]
     var codex: [(slug: String, efforts: [String])] = []
+    /// pi's `--thinking` levels.
+    var piThinking = ["off", "minimal", "low", "medium", "high", "xhigh", "max"]
 
     static func rank(_ effort: String) -> Int {
         ["minimal", "low", "medium", "high", "xhigh", "max", "ultra"].firstIndex(of: effort) ?? 99

@@ -1,6 +1,6 @@
 # agent-feedback
 
-Give visual feedback to [Claude Code](https://claude.com/claude-code) and [Codex](https://github.com/openai/codex) sessions the way you would to a colleague: grab a screenshot, draw on it, write a note, hand it to a running session. The session picks it up in its chat, fixes exactly that, writes down what it changed, and you accept the result or send it back.
+Give visual feedback to [Claude Code](https://claude.com/claude-code), [Codex](https://github.com/openai/codex) and [pi](https://pi.dev) sessions the way you would to a colleague: grab a screenshot, draw on it, write a note, hand it to a running session. The session picks it up in its chat, fixes exactly that, writes down what it changed, and you accept the result or send it back.
 
 A small macOS menu bar app, three hooks and one skill. Everything is plain files: no server, no account, no database.
 
@@ -33,6 +33,7 @@ A small macOS menu bar app, three hooks and one skill. Everything is plain files
 - `jq`: `brew install jq`
 - Claude Code CLI (`claude`), signed in. Delivery into a running chat needs a version with local session messaging (the `SendMessage` tool); otherwise items are worked on in the background.
 - Optional: Codex CLI (`codex`) with hooks (0.114 or later).
+- Optional: pi (`pi`).
 
 ## Install
 
@@ -66,6 +67,14 @@ agent-feedback setup --codex   # or ./install.sh --codex
 
 Links the skill to `~/.agents/skills/feedback` and adds the same hooks to `~/.codex/hooks.json` (backup next to it). Codex asks you to trust new hooks: run `/hooks` once in Codex and approve them. Codex sessions then show up in the picker with “(Codex)”. “Send to the session now” puts the item into an open Codex session with `codex queue` (no extra model call, no Claude subscription needed): it runs as the next turn, right away if the session is idle. Once the session has ended, a background fork works on it (`codex exec fork <session> …`, sandbox `workspace-write` plus the feedback folder).
 
+### pi
+
+```bash
+agent-feedback setup --pi   # or ./install.sh --pi
+```
+
+Links the skill to `~/.agents/skills/feedback` and the extension `hooks/pi-extension.ts` to `~/.pi/agent/extensions/agent-feedback.ts` (pi has no hook config; the extension does what the hooks do). Restart running pi sessions or run `/reload`; interactive pi sessions then show up in the picker with “(Pi)” after their next prompt. One-shot runs (`pi -p`, `--mode json`, e.g. subagents) don't. “Send to the session now” drops the item into the session's mailbox (`~/.claude/agent-feedback/queue/<session>/`); the extension sends it into the chat as `/skill:feedback …` (no extra model call, no Claude subscription needed): right away if the session is idle, otherwise as the next turn. Once the session has ended, a background fork works on it (`pi -p --fork <session> …` in the session's start directory).
+
 `./uninstall.sh` removes the app, the LaunchAgent and the links; your feedback folders and settings stay.
 
 ## Settings
@@ -77,15 +86,17 @@ Open **Settings …** (⌘, or the menu bar menu) to change the shortcuts, the m
   "workspaces": "~/work/workspaces",
   "claude": "/custom/path/to/claude",
   "codex": "/custom/path/to/codex",
-  "models": { "transport": "haiku", "claude": "sonnet", "codex": "gpt-6-luna" },
-  "efforts": { "claude": "medium", "codex": "low" }
+  "pi": "/custom/path/to/pi",
+  "models": { "transport": "haiku", "claude": "sonnet", "codex": "gpt-6-luna", "pi": "anthropic/claude-sonnet-5-5" },
+  "efforts": { "claude": "medium", "codex": "low", "pi": "medium" }
 }
 ```
 
 - `workspaces`: if you keep several checkouts of one task side by side (`<workspaces>/<name>/<repo-a>`, `<workspaces>/<name>/<repo-b>`), all sessions under `<workspaces>/<name>` share one feedback folder `<workspaces>/<name>/feedback`. Without it, feedback lives in `<project>/.feedback` (with a `.gitignore`, so it never ends up in git).
 - `claude`: only needed if the CLI is not in `~/.local/bin`, `~/.claude/local`, `/opt/homebrew/bin` or `/usr/local/bin`.
 - `codex`: only needed if the CLI is not in `/opt/homebrew/bin`, `/usr/local/bin`, `~/.local/bin` or an nvm install.
-- `models`: all optional, read on every run. `transport` is the model of the short `claude -p` call that delivers an item into a running Claude chat (default `haiku`). `claude` and `codex` are the models for background runs (forks); without them the CLI's default applies. The values are passed as given (`--model` / `-m`). `efforts` sets the reasoning effort per run type (`--effort` for Claude, `model_reasoning_effort` for Codex). The settings window lists the Claude aliases and current models and, for Codex, the models and effort levels from `codex debug models`.
+- `pi`: only needed if the CLI is not in `~/.local/bin`, `~/.pi/agent/bin`, `/opt/homebrew/bin`, `/usr/local/bin` or an nvm install.
+- `models`: all optional, read on every run. `transport` is the model of the short `claude -p` call that delivers an item into a running Claude chat (default `haiku`). `claude`, `codex` and `pi` are the models for background runs (forks); without them the CLI's default applies. The values are passed as given (`--model` / `-m`). `efforts` sets the reasoning effort per run type (`--effort` for Claude, `model_reasoning_effort` for Codex, `--thinking` for pi). The settings window lists the Claude aliases and current models and, for Codex, the models and effort levels from `codex debug models`.
 
 Optional session names: if `~/.claude/agent-feedback/labels.json` exists (`{"<session_id>": {"name": "…", "headline": "…"}}`), the picker shows those names, for example from a desktop companion that already names your sessions.
 
@@ -147,6 +158,7 @@ The status of an item is the last `**Status:**` line: `implemented`, `nothing to
 | `hooks/session.sh` | `UserPromptSubmit` / `SessionEnd`: registers running sessions in `~/.claude/agent-feedback/sessions/`. |
 | `hooks/feedback-hint.sh` | `UserPromptSubmit`: lists the open items assigned to this session. |
 | `hooks/feedback-dir.sh`, `hooks/common.sh` | Folder rule and settings, shared by hooks and skill. |
+| `hooks/pi-extension.ts` | pi extension: the same registration and hint as the hooks, plus the mailbox for items sent to a running pi session. |
 | `skills/feedback/` | The skill agents follow. |
 | `tests/hooks.sh`, `tests/model.sh` | Tests for the hooks and for storage, status and re-editing. |
 

@@ -4,6 +4,11 @@ All notable changes to agent-feedback. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+### Added
+
+- pi support (`agent-feedback setup --pi`): an extension registers interactive pi sessions for the picker and reminds them of open items; “Send to the session now” hands the item to a running pi session through a mailbox folder the extension sends into the chat; ended pi sessions get a background fork (`pi -p --fork`). Settings: `pi` CLI path, `models.pi` and `efforts.pi` (`--thinking`).
+- `session.sh` takes an optional `title` and `pid` from the payload.
+
 ## [0.6.0] – 2026-10-28
 
 ### Added
