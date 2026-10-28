@@ -12,7 +12,7 @@ A small macOS menu bar app, three hooks and one skill. Everything is plain files
 
 **Capture**
 - Global shortcuts (changeable in Settings, ⌘,): **⌃⌥S** area or window screenshot, **⌃⌥⇧S** full screen, **⌃⌥T** recognize text in an area and copy it (OCR). Alternatively: image from the clipboard, an image file, drag & drop, or a text-only item.
-- Editor: toolbar with select/move/delete, arrow, line, box, ellipse, pen, highlighter, pixelate, numbered markers ①②③, text; undo/redo; zoom. Image actions (they close the editor without filing an item): copy (⌘C), save as PNG (⇧⌘S), pin on top, drag into other apps. Copy recognized text keeps it open. Several images per item, each with its own context (time, app, Chrome URL and tab title, window size, light/dark mode). Pick, delete or clear images in the thumbnail strip.
+- Editor: toolbar with select/move/delete, arrow, line, box, ellipse, pen, highlighter, pixelate, numbered markers ①②③, text; undo/redo; zoom. Image actions (they close the editor without filing an item): copy (⌘C, unless text is selected), save as PNG (⌘S), pin on top, drag into other apps. Copy recognized text keeps it open. Several images per item, each with its own context (time, app, Chrome URL and tab title, window size, light/dark mode). Pick, delete or clear images in the thumbnail strip.
 - Pick the target session from the sessions that are currently running (project, title, last prompt), write a note (“1 too far right, 2 wrong colour”), **⌘↩**.
 
 **Hand-off**

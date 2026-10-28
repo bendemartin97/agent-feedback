@@ -8,7 +8,6 @@ final class MarkupCanvas: NSView, NSTextFieldDelegate {
     var tool: Mark.Kind? = .arrow
     var color = NSColor.systemRed
     var onChange: (() -> Void)?
-    var onCopy: (() -> Void)?
     /// Next number across all images of the item; without it, per image.
     var nextNumber: (() -> Int)?
     /// A number was placed.
@@ -144,9 +143,6 @@ final class MarkupCanvas: NSView, NSTextFieldDelegate {
     override func keyDown(with event: NSEvent) {
         if event.keyCode == 51 || event.keyCode == 117 { deleteSelected() } else { super.keyDown(with: event) }
     }
-
-    /// ⌘C on the image copies it with its marks.
-    @objc func copy(_ sender: Any?) { onCopy?() }
 
     private func editText(at p: NSPoint, replacing: Int?) {
         let size = 16 / zoom
@@ -453,7 +449,6 @@ final class FeedbackEditor: NSObject, NSWindowDelegate {
             let c = MarkupCanvas(page: p)
             c.tool = Self.toolKinds[max(0, tools.selectedSegment)]
             c.color = Self.palette[max(0, colors.selectedSegment)]
-            c.onCopy = { [weak self] in self?.copyImage() }
             c.nextNumber = { [weak self] in
                 (self?.canvases.flatMap(\.page.marks).filter { $0.kind == .number }.compactMap { Int($0.text) }.max() ?? 0) + 1
             }
@@ -633,7 +628,7 @@ final class FeedbackEditor: NSObject, NSWindowDelegate {
 
         let bar = NSStackView(views: [
             button("doc.on.doc", "Copy image with marks and close (⌘C)", #selector(copyImage)),
-            button("square.and.arrow.down", "Save as PNG and close (⇧⌘S)", #selector(saveAs), "s", [.command, .shift]),
+            button("square.and.arrow.down", "Save as PNG and close (⌘S)", #selector(saveAs), "s"),
             button("pin", "Pin the image on top and close", #selector(pin)),
             dragOut,
             button("text.viewfinder", "Copy the text in the image (OCR)", #selector(copyText)),
@@ -774,6 +769,17 @@ final class FeedbackEditor: NSObject, NSWindowDelegate {
     func handleUndo(redo again: Bool) {
         if typing, let um = window.firstResponder?.undoManager { again ? um.redo() : um.undo() }
         else if again { canvas?.redo() } else { canvas?.undo() }
+    }
+
+    /// ⌘C from the Edit menu: selected text while typing, otherwise the image with its marks (and close).
+    func handleCopy() {
+        if typing, let text = window.firstResponder as? NSTextView, text.selectedRange().length > 0 {
+            text.copy(nil)
+        } else if canvas != nil {
+            copyImage()
+        } else {
+            NSSound.beep()
+        }
     }
 
     func handlePaste() {

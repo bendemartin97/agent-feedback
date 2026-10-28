@@ -4,6 +4,10 @@ All notable changes to agent-feedback. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+### Changed
+
+- ⌘C in the editor copies the image with its marks (and closes) unless text is selected, also while the note has focus; ⌘S saves it as PNG (was ⇧⌘S).
+
 ## [0.6.0] – 2026-10-28
 
 ### Added

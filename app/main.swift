@@ -148,7 +148,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         add("Redo", #selector(editRedo), "z", [.command, .shift], target: self)
         edit.addItem(.separator())
         add("Cut", #selector(NSText.cut(_:)), "x")
-        add("Copy", #selector(NSText.copy(_:)), "c")
+        add("Copy", #selector(editCopy), "c", target: self)
         add("Paste", #selector(editPaste), "v", target: self)
         add("Select All", #selector(NSText.selectAll(_:)), "a")
         add("Close Window", #selector(NSWindow.performClose(_:)), "w")
@@ -163,6 +163,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     @objc private func editRedo() {
         if let editor, editor.isKey { editor.handleUndo(redo: true) } else { NSApp.keyWindow?.firstResponder?.undoManager?.redo() }
+    }
+
+    @objc private func editCopy() {
+        if let editor, editor.isKey { editor.handleCopy() } else { NSApp.sendAction(#selector(NSText.copy(_:)), to: nil, from: nil) }
     }
 
     @objc private func editPaste() {
