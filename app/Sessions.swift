@@ -6,7 +6,9 @@ let sessionsDir = appHome.appendingPathComponent("sessions")
 
 /// Settings from `~/.claude/agent-feedback/config.json` (all optional):
 /// `workspaces` – folder of workspaces (`<workspaces>/<name>/<checkout>`) that share one feedback folder;
-/// `claude` – path to the claude CLI if it is not in one of the usual places.
+/// `claude`, `codex` – paths to the CLIs if they are not in one of the usual places;
+/// `models` – `transport` (delivery into a running Claude chat, default haiku), `claude` and `codex` (background runs,
+/// default: the CLI's own default).
 enum Config {
     private static var values: [String: Any] {
         (try? Data(contentsOf: appHome.appendingPathComponent("config.json")))
@@ -17,6 +19,33 @@ enum Config {
         guard var p = values[key] as? String, !p.isEmpty else { return nil }
         if p.hasPrefix("~") { p = homeURL.path + p.dropFirst() }
         return p.hasSuffix("/") ? String(p.dropLast()) : p
+    }
+
+    /// Value as written in the file (for the settings window); `group` is a nested object such as `models`.
+    static func raw(_ key: String, in group: String? = nil) -> String {
+        let dict = group.map { values[$0] as? [String: Any] ?? [:] } ?? values
+        return dict[key] as? String ?? ""
+    }
+
+    /// Writes one value, keeping everything else in the file; an empty value removes the key.
+    static func set(_ key: String, _ value: String, in group: String? = nil) {
+        var all = values
+        let v = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let group {
+            var dict = all[group] as? [String: Any] ?? [:]
+            dict[key] = v.isEmpty ? nil : v
+            all[group] = dict.isEmpty ? nil : dict
+        } else {
+            all[key] = v.isEmpty ? nil : v
+        }
+        try? FileManager.default.createDirectory(at: appHome, withIntermediateDirectories: true)
+        try? JSONSerialization.data(withJSONObject: all, options: [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes])
+            .write(to: appHome.appendingPathComponent("config.json"))
+    }
+
+    static func model(_ key: String) -> String? {
+        guard let m = (values["models"] as? [String: Any])?[key] as? String, !m.isEmpty else { return nil }
+        return m
     }
 
     static var workspaces: String? { ProcessInfo.processInfo.environment["AGENT_FEEDBACK_WORKSPACES"] ?? path("workspaces") }

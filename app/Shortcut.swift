@@ -114,6 +114,13 @@ enum Hotkey {
         claim(shortcut, for: action)
     }
 
+    static func unregisterAll() {
+        retries.values.forEach { $0.cancel() }
+        retries = [:]
+        refs.values.forEach { UnregisterEventHotKey($0) }
+        refs = [:]
+    }
+
     /// If another app already holds the shortcut, retry every 5 s.
     private static func claim(_ shortcut: Shortcut, for action: Shortcut.Action) {
         var ref: EventHotKeyRef?
@@ -125,32 +132,4 @@ enum Hotkey {
         retries[action] = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: work)
     }
-}
-
-/// Dialog that records the next pressed shortcut. Returns nil when cancelled.
-func recordShortcut(_ action: Shortcut.Action) -> Shortcut? {
-    NSApp.activate(ignoringOtherApps: true)
-    let alert = NSAlert()
-    alert.messageText = "New Shortcut: \(action.title)"
-    alert.informativeText = "Current: \(Shortcut.saved(action).display). Combine with ⌃ or ⌘."
-    alert.addButton(withTitle: "Cancel")
-    alert.addButton(withTitle: "Default (\(action.standard.display))")
-    var picked: Shortcut?
-    let monitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { event in
-        let mods = event.modifierFlags.intersection([.control, .option, .shift, .command])
-        let key = Shortcut.keyName(Int(event.keyCode)) ?? (event.charactersIgnoringModifiers ?? "").uppercased()
-        guard !mods.isEmpty, !key.isEmpty, event.keyCode != UInt16(kVK_Escape) else { return event }
-        let s = Shortcut(keyCode: Int(event.keyCode), modifiers: mods, key: key)
-        if let problem = s.problem {
-            alert.informativeText = "\(s.display): \(problem)"
-            return nil
-        }
-        picked = s
-        NSApp.stopModal(withCode: .alertThirdButtonReturn)
-        return nil
-    }
-    let response = alert.runModal()
-    if let monitor { NSEvent.removeMonitor(monitor) }
-    if response == .alertSecondButtonReturn { return action.standard }
-    return picked
 }

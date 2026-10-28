@@ -85,10 +85,9 @@ enum Demo {
             i.keyEquivalentModifierMask = s.modifiers
         }
         for title in ["Image from Clipboard …", "Image File …", "Text Only …", "-", "Feedback Inbox …  (2 for you, 2 for agents)", "-",
-                      "Change Shortcut", "Quit"] {
-            menu.addItem(title == "-" ? .separator() : NSMenuItem(title: title, action: nil, keyEquivalent: title == "Quit" ? "q" : ""))
+                      "Settings …", "Quit"] {
+            menu.addItem(title == "-" ? .separator() : NSMenuItem(title: title, action: nil, keyEquivalent: ["Quit": "q", "Settings …": ","][title] ?? ""))
         }
-        menu.items.last { $0.title == "Change Shortcut" }?.submenu = NSMenu()
         item.menu = menu
         // Plain backdrop around the menu, also over the other menu bar items, so only the demo shows.
         var backdrops: [NSWindow] = []

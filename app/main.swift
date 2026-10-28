@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var status: NSStatusItem!
     var editor: FeedbackEditor?
     var inbox: InboxWindow!
+    lazy var settings = SettingsWindow()
     var capturing = false
     var shortcuts = Dictionary(uniqueKeysWithValues: Shortcut.Action.allCases.map { ($0, Shortcut.saved($0)) })
     /// Last known status per item, to report agent results.
@@ -111,15 +112,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let all = items()
         add("Feedback Inbox …  (\(all.filter(\.needsUser).count) for you, \(forAgents(all)) for agents)", #selector(openInbox))
         menu.addItem(.separator())
-        let change = NSMenuItem(title: "Change Shortcut", action: nil, keyEquivalent: "")
-        change.submenu = NSMenu()
-        for (i, action) in Shortcut.Action.allCases.enumerated() {
-            let item = NSMenuItem(title: "\(action.title) … (\(shortcuts[action]!.display))", action: #selector(changeShortcut(_:)), keyEquivalent: "")
-            item.tag = i
-            item.target = self
-            change.submenu?.addItem(item)
-        }
-        menu.addItem(change)
+        add("Settings …", #selector(openSettings), key: ",", mods: .command)
         menu.addItem(withTitle: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
     }
 
@@ -128,6 +121,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let main = NSMenu()
         let appItem = NSMenuItem()
         let appMenu = NSMenu()
+        let settingsItem = appMenu.addItem(withTitle: "Settings …", action: #selector(openSettings), keyEquivalent: ",")
+        settingsItem.target = self
+        appMenu.addItem(.separator())
         appMenu.addItem(withTitle: "Quit Agent Feedback", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         appItem.submenu = appMenu
         main.addItem(appItem)
@@ -169,13 +165,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         inbox.show()
     }
 
-    @objc private func changeShortcut(_ sender: NSMenuItem) {
-        let action = Shortcut.Action.allCases[sender.tag]
-        guard let s = recordShortcut(action) else { return }
-        shortcuts[action] = s
-        s.save(action)
-        Hotkey.register(s, for: action)
-        notify("\(action.title) is now \(s.display)")
+    @objc private func openSettings() {
+        settings.onShortcut = { [weak self] action, s in
+            self?.shortcuts[action] = s
+            Hotkey.register(s, for: action)
+        }
+        settings.onRecording = { [weak self] on in
+            guard let self else { return }
+            if on { Hotkey.unregisterAll() } else { for (action, s) in self.shortcuts { Hotkey.register(s, for: action) } }
+        }
+        settings.show()
     }
 
     // MARK: New items
