@@ -4,6 +4,8 @@ Give visual feedback to [Claude Code](https://claude.com/claude-code) sessions t
 
 A small macOS menu bar app, three Claude Code hooks and one skill. Everything is plain files: no server, no account, no database.
 
+![Menu bar: capture an area, the full screen or just its text; open the inbox](docs/menu.png)
+
 ![Editor: mark up a screenshot, pick the session, write a note](docs/editor.png)
 
 ![Inbox: everything you sent, with status, questions and results](docs/inbox.png)

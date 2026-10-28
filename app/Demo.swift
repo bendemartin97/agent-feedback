@@ -67,9 +67,67 @@ enum Demo {
             capture(editor.nsWindow, to: dir.appendingPathComponent("editor.png"))
             editor.nsWindow.orderOut(nil)
             capture(inbox.nsWindow, to: dir.appendingPathComponent("inbox.png"))
+            inbox.nsWindow.orderOut(nil)
             try? FileManager.default.removeItem(at: data)
+            captureMenu(to: dir.appendingPathComponent("menu.png"))
+        }
+    }
+
+    /// Opens a demo status item with its menu and captures that corner of the desktop, then quits.
+    private static func captureMenu(to url: URL) {
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        item.button?.title = "📸 ⏳1 ❓1 ✅1"
+        let menu = NSMenu()
+        menu.autoenablesItems = false
+        for action in Shortcut.Action.allCases {
+            let s = action.standard
+            let i = menu.addItem(withTitle: action.title, action: nil, keyEquivalent: s.key.lowercased())
+            i.keyEquivalentModifierMask = s.modifiers
+        }
+        for title in ["Image from Clipboard …", "Image File …", "Text Only …", "-", "Feedback Inbox …  (2 for you, 2 for agents)", "-",
+                      "Change Shortcut", "Quit"] {
+            menu.addItem(title == "-" ? .separator() : NSMenuItem(title: title, action: nil, keyEquivalent: title == "Quit" ? "q" : ""))
+        }
+        menu.items.last { $0.title == "Change Shortcut" }?.submenu = NSMenu()
+        item.menu = menu
+        // Plain backdrop around the menu, also over the other menu bar items, so only the demo shows.
+        var backdrops: [NSWindow] = []
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            guard let button = item.button?.window?.frame, let main = NSScreen.main else { return }
+            let top = main.frame.maxY, bar = top - main.visibleFrame.maxY
+            let below = NSRect(x: button.minX - 200, y: top - bar - 700, width: 900, height: 700)
+            for (rect, level) in [(below, NSWindow.Level.normal),
+                                  (NSRect(x: button.minX - 200, y: top - bar, width: 200, height: bar), .init(Int(CGWindowLevelForKey(.statusWindow)) + 1)),
+                                  (NSRect(x: button.maxX, y: top - bar, width: 700, height: bar), .init(Int(CGWindowLevelForKey(.statusWindow)) + 1))] {
+                let w = NSWindow(contentRect: rect, styleMask: .borderless, backing: .buffered, defer: false)
+                w.backgroundColor = NSColor(srgbRed: 0.16, green: 0.2, blue: 0.36, alpha: 1)
+                w.level = level
+                w.isReleasedWhenClosed = false
+                w.orderFrontRegardless()
+                backdrops.append(w)
+            }
+        }
+        let timer = Timer(timeInterval: 1.2, repeats: false) { _ in
+            let me = ProcessInfo.processInfo.processIdentifier
+            let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]] ?? []
+            var area = CGRect.null
+            for w in list where w[kCGWindowOwnerPID as String] as? pid_t == me && !backdrops.contains(where: { $0.windowNumber == w[kCGWindowNumber as String] as? Int }) {
+                if let b = w[kCGWindowBounds as String] as? [String: CGFloat], let x = b["X"], let y = b["Y"], let wd = b["Width"], let h = b["Height"] {
+                    area = area.union(CGRect(x: x, y: y, width: wd, height: h))
+                }
+            }
+            area = CGRect(x: area.minX - 16, y: 0, width: area.width + 32, height: area.maxY + 16).integral
+            let p = Process()
+            p.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+            p.arguments = ["-x", "-R\(Int(area.minX)),\(Int(area.minY)),\(Int(area.width)),\(Int(area.height))", url.path]
+            try? p.run()
+            p.waitUntilExit()
+            print(FileManager.default.fileExists(atPath: url.path) ? "wrote \(url.path)" : "failed \(url.path)")
+            menu.cancelTracking()
             NSApp.terminate(nil)
         }
+        RunLoop.main.add(timer, forMode: .common)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { item.button?.performClick(nil) }
     }
 
     private static func capture(_ window: NSWindow, to url: URL) {
