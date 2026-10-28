@@ -6,7 +6,8 @@ D="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 APP="$1"
 LABEL="${2:-com.martinbende.agentfeedback}"
 
-mkdir -p "$APP/Contents/MacOS"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+cp "$D/assets/AppIcon.icns" "$D/assets/menubar.png" "$D/assets/menubar@2x.png" "$APP/Contents/Resources/"
 swiftc -O -swift-version 5 "$D"/app/*.swift -o "$APP/Contents/MacOS/AgentFeedback"
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
@@ -15,6 +16,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleIdentifier</key><string>$LABEL</string>
   <key>CFBundleName</key><string>Agent Feedback</string>
   <key>CFBundleExecutable</key><string>AgentFeedback</string>
+  <key>CFBundleIconFile</key><string>AppIcon</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>LSUIElement</key><true/>
   <key>NSAppleEventsUsageDescription</key><string>Reads the URL of the active Chrome tab for the feedback screenshot.</string>

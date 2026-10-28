@@ -4,6 +4,10 @@ All notable changes to agent-feedback. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+### Added
+
+- App icon (speech bubble) in Finder and dialogs; the menu bar shows it as a template icon (adapts to light and dark) instead of 📸.
+
 ### Removed
 
 - The menu bar screenshot in the README.

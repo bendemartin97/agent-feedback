@@ -16,6 +16,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var shortcuts = Dictionary(uniqueKeysWithValues: Shortcut.Action.allCases.map { ($0, Shortcut.saved($0)) })
     /// Last known status per item, to report agent results.
     private var known: [String: FeedbackItem.Status] = [:]
+    /// Text in front of the counters when the template icon is missing (e.g. a build without resources).
+    private var icon = "📸"
     private var notifyUntil = Date.distantPast
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -26,6 +28,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         }
         NSApp.mainMenu = mainMenu()
         status = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        if let image = NSImage(named: "menubar") {
+            image.isTemplate = true
+            image.size = NSSize(width: 16, height: 16)
+            status.button?.image = image
+            status.button?.imagePosition = .imageLeading
+            icon = ""
+        }
         let menu = NSMenu()
         menu.delegate = self
         status.menu = menu
@@ -80,12 +89,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let agents = forAgents(all)
         let questions = all.filter { $0.status == .question }.count
         let check = all.filter { $0.status == .implemented || $0.status == .nothingToDo }.count
-        status.button?.title = "📸" + (agents > 0 ? " ⏳\(agents)" : "") + (questions > 0 ? " ❓\(questions)" : "") + (check > 0 ? " ✅\(check)" : "")
+        status.button?.title = icon + (agents > 0 ? " ⏳\(agents)" : "") + (questions > 0 ? " ❓\(questions)" : "") + (check > 0 ? " ✅\(check)" : "")
     }
 
     /// Short feedback as the title in the menu bar.
     private func notify(_ text: String, seconds: Double = 4) {
-        status.button?.title = "📸 \(text)"
+        status.button?.title = icon + " \(text)"
         notifyUntil = Date().addingTimeInterval(seconds)
         DispatchQueue.main.asyncAfter(deadline: .now() + seconds + 0.1) { [weak self] in self?.refresh() }
     }
