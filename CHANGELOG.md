@@ -4,6 +4,8 @@ All notable changes to agent-feedback. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [0.3.0] – 2026-10-28
+
 ### Added
 
 - Codex support: `agent-feedback setup --codex` (or `./install.sh --codex`) links the skill to `~/.agents/skills/feedback` and adds the hooks to `~/.codex/hooks.json`. Codex sessions show up in the picker as “(Codex)”; items for them are worked on by a background fork (`codex exec fork`, sandbox `workspace-write` plus the feedback folder).
@@ -51,6 +53,7 @@ First version.
 - Hooks for session registration and open-item hints; skill `feedback` for the agent side.
 - Install and uninstall scripts, tests for hooks and model.
 
-[Unreleased]: https://github.com/bendemartin97/agent-feedback/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/bendemartin97/agent-feedback/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/bendemartin97/agent-feedback/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/bendemartin97/agent-feedback/compare/f0cf96b...v0.2.0
 [0.1.0]: https://github.com/bendemartin97/agent-feedback/commit/f0cf96b
