@@ -78,7 +78,7 @@ final class MarkupCanvas: NSView, NSTextFieldDelegate {
     }
 
     private func hit(_ p: NSPoint) -> Int? {
-        page.marks.indices.reversed().first { page.marks[$0].bounds.insetBy(dx: -6 / zoom, dy: -6 / zoom).contains(p) }
+        page.marks.indices.reversed().first { page.marks[$0].contains(p, tolerance: 6 / zoom) }
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -124,6 +124,14 @@ final class MarkupCanvas: NSView, NSTextFieldDelegate {
             page.marks[page.marks.count - 1].points[1] = p
         }
         needsDisplay = true
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        guard tool == .arrow || tool == .box, field == nil, let last = page.marks.last, last.kind == tool,
+              let a = last.points.first, let b = last.points.last, hypot(b.x - a.x, b.y - a.y) < 6 / zoom else { return }
+        page.marks = undoStack.popLast() ?? Array(page.marks.dropLast())
+        needsDisplay = true
+        onChange?()
     }
 
     override func keyDown(with event: NSEvent) {

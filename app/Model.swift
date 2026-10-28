@@ -70,11 +70,34 @@ struct Mark: Codable {
         case .text:
             let size = label.size(), pad = width * 0.3
             return NSRect(x: first.x - pad, y: first.y - pad, width: size.width + pad * 2, height: size.height + pad * 2)
+        case .arrow:
+            let pts = [first] + arrowHead.points
+            let xs = pts.map(\.x), ys = pts.map(\.y)
+            return NSRect(x: xs.min()!, y: ys.min()!, width: xs.max()! - xs.min()!, height: ys.max()! - ys.min()!)
+                .insetBy(dx: -width, dy: -width)
         default:
             let xs = points.map(\.x), ys = points.map(\.y)
             let r = NSRect(x: xs.min()!, y: ys.min()!, width: xs.max()! - xs.min()!, height: ys.max()! - ys.min()!)
             return r.insetBy(dx: -width * 2, dy: -width * 2)
         }
+    }
+
+    /// Tip, both barbs and the base where the shaft ends; the head shrinks on short arrows.
+    private var arrowHead: (points: [CGPoint], base: CGPoint) {
+        let a = points[0], b = points[points.count - 1]
+        let dx = b.x - a.x, dy = b.y - a.y, length = max(hypot(dx, dy), 0.001)
+        let ux = dx / length, uy = dy / length
+        let head = min(width * 4, length * 0.6), half = head * 0.55
+        let base = CGPoint(x: b.x - ux * head, y: b.y - uy * head)
+        return ([b, CGPoint(x: base.x - uy * half, y: base.y + ux * half), CGPoint(x: base.x + uy * half, y: base.y - ux * half)], base)
+    }
+
+    /// Hit test: arrows along the shaft, everything else by its outline.
+    func contains(_ p: CGPoint, tolerance: CGFloat) -> Bool {
+        guard kind == .arrow, let a = points.first, let b = points.last else { return bounds.insetBy(dx: -tolerance, dy: -tolerance).contains(p) }
+        let dx = b.x - a.x, dy = b.y - a.y, len2 = dx * dx + dy * dy
+        let t = len2 == 0 ? 0 : max(0, min(1, ((p.x - a.x) * dx + (p.y - a.y) * dy) / len2))
+        return hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy)) <= width * 2 + tolerance
     }
 
     func draw() {
@@ -105,13 +128,17 @@ struct Mark: Codable {
             path.appendRect(NSRect(x: min(first.x, last.x), y: min(first.y, last.y),
                                    width: abs(last.x - first.x), height: abs(last.y - first.y)))
         case .arrow:
+            let head = arrowHead
             path.move(to: first)
-            path.line(to: last)
-            let angle = atan2(last.y - first.y, last.x - first.x), head = width * 4.5
-            for side in [CGFloat.pi * 0.82, -CGFloat.pi * 0.82] {
-                path.move(to: last)
-                path.line(to: NSPoint(x: last.x + cos(angle + side) * head, y: last.y + sin(angle + side) * head))
-            }
+            path.line(to: head.base)
+            let tip = NSBezierPath()
+            tip.move(to: head.points[0])
+            head.points.dropFirst().forEach(tip.line(to:))
+            tip.close()
+            tip.lineWidth = width / 2
+            tip.lineJoinStyle = .round
+            tip.fill()
+            tip.stroke()
         default:
             path.move(to: first)
             points.dropFirst().forEach(path.line(to:))
