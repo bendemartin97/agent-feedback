@@ -4,6 +4,8 @@ All notable changes to agent-feedback. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [0.7.0] – 2026-10-28
+
 ### Added
 
 - pi support (`agent-feedback setup --pi`): an extension registers interactive pi sessions for the picker and reminds them of open items; “Send to the session now” hands the item to a running pi session through a mailbox folder the extension sends into the chat; ended pi sessions get a background fork (`pi -p --fork`). Settings: `pi` CLI path, `models.pi` and `efforts.pi` (`--thinking`).
@@ -91,7 +93,8 @@ First version.
 - Hooks for session registration and open-item hints; skill `feedback` for the agent side.
 - Install and uninstall scripts, tests for hooks and model.
 
-[Unreleased]: https://github.com/bendemartin97/agent-feedback/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/bendemartin97/agent-feedback/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/bendemartin97/agent-feedback/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/bendemartin97/agent-feedback/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/bendemartin97/agent-feedback/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/bendemartin97/agent-feedback/compare/v0.3.0...v0.4.0
