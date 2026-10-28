@@ -37,5 +37,6 @@ cat > "$AGENT" <<PLIST
 </dict></plist>
 PLIST
 launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
+for _ in $(seq 20); do launchctl print "gui/$(id -u)/$LABEL" >/dev/null 2>&1 || break; sleep 0.25; done
 launchctl bootstrap "gui/$(id -u)" "$AGENT"
 echo "running: $APP"
