@@ -4,6 +4,10 @@ All notable changes to agent-feedback. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+### Removed
+
+- The menu bar screenshot in the README.
+
 ## [0.4.0] – 2026-10-28
 
 ### Added
