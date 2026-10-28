@@ -198,7 +198,7 @@ final class InboxWindow: NSObject, NSWindowDelegate {
     }
 
     private func row(_ item: FeedbackItem) -> NSView {
-        let image = NSImageView()
+        let image = ThumbView()
         image.imageScaling = .scaleProportionallyUpOrDown
         image.wantsLayer = true
         image.layer?.cornerRadius = 6
@@ -253,7 +253,9 @@ final class InboxWindow: NSObject, NSWindowDelegate {
             let e = WrappingLabel(wrappingLabelWithString: extra)
             e.font = .systemFont(ofSize: 11)
             e.textColor = item.status == .failed ? .systemRed : .labelColor
-            e.maximumNumberOfLines = 2
+            // Questions and errors in full (the user has to act on them), results shortened.
+            e.maximumNumberOfLines = item.status == .question || item.status == .failed ? 0 : 3
+            e.cell?.truncatesLastVisibleLine = true
             e.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
             texts.append(e)
         }
@@ -269,9 +271,12 @@ final class InboxWindow: NSObject, NSWindowDelegate {
         info.setCustomSpacing(2, after: status)
         info.setCustomSpacing(8, after: session)
         info.setCustomSpacing(12, after: texts[texts.count - 2])
-        info.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        info.setContentHuggingPriority(.init(1), for: .horizontal)
         info.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        for v in texts where v !== bar { v.widthAnchor.constraint(lessThanOrEqualTo: info.widthAnchor).isActive = true }
+        // Wrapping labels take the full width so they re-wrap when the window grows or shrinks.
+        for v in texts where v !== bar {
+            (v is WrappingLabel ? v.widthAnchor.constraint(equalTo: info.widthAnchor) : v.widthAnchor.constraint(lessThanOrEqualTo: info.widthAnchor)).isActive = true
+        }
 
         let check = ClosureButton(title: "", action: {})
         check.setButtonType(.switch)
@@ -282,16 +287,22 @@ final class InboxWindow: NSObject, NSWindowDelegate {
             if check.state == .on { self.picked.insert(item.md.path) } else { self.picked.remove(item.md.path) }
             self.updateBar()
         }
+        for v in [check, image] as [NSView] { v.setContentHuggingPriority(.required, for: .horizontal) }
         let row = NSStackView(views: [check, image, info])
         row.alignment = .top
+        row.distribution = .fill
         row.spacing = 14
-        row.edgeInsets = NSEdgeInsets(top: 12, left: 12, bottom: 14, right: 12)
+        let pad: CGFloat = 14
+        row.edgeInsets = NSEdgeInsets(top: pad, left: pad, bottom: pad, right: pad)
         row.translatesAutoresizingMaskIntoConstraints = false
         let card = CardView()
         card.addSubview(row)
         NSLayoutConstraint.activate([
             row.topAnchor.constraint(equalTo: card.topAnchor), row.bottomAnchor.constraint(equalTo: card.bottomAnchor),
             row.leadingAnchor.constraint(equalTo: card.leadingAnchor), row.trailingAnchor.constraint(equalTo: card.trailingAnchor),
+            // Top-aligned stacks don't push their height down; keep the bottom inset below the text and buttons.
+            info.bottomAnchor.constraint(lessThanOrEqualTo: card.bottomAnchor, constant: -pad),
+            image.bottomAnchor.constraint(lessThanOrEqualTo: card.bottomAnchor, constant: -pad),
         ])
         return card
     }
@@ -390,6 +401,12 @@ final class WrappingLabel: NSTextField {
             invalidateIntrinsicContentSize()
         }
     }
+}
+
+/// Thumbnail whose frame is its visible area: NSImageView adds alignment insets, which made the gap
+/// above the thumbnail smaller than the card's padding.
+final class ThumbView: NSImageView {
+    override var alignmentRectInsets: NSEdgeInsets { NSEdgeInsetsZero }
 }
 
 /// Rounded card whose colors follow light/dark switches.

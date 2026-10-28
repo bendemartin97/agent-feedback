@@ -6,6 +6,7 @@ All notable changes to agent-feedback. The format follows [Keep a Changelog](htt
 
 ### Fixed
 
+- Inbox cards grow with their text and re-wrap when the window is resized; long questions no longer run into the buttons and are shown in full, and every card has the same 14 pt padding on all four sides.
 - The editor takes keyboard focus after a capture, also when macOS first hands focus back to the previous app.
 
 ### Changed
