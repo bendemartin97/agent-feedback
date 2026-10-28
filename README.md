@@ -11,8 +11,8 @@ A small macOS menu bar app, three Claude Code hooks and one skill. Everything is
 ## What it does
 
 **Capture**
-- Global shortcut (default **⌃⌥S**, changeable in the menu) for an area or window screenshot. Alternatively: image from the clipboard, an image file, drag & drop, or a text-only item.
-- Editor: select/move/delete marks, arrow, box, pen, highlighter, numbered markers ①②③, text; undo/redo; zoom. Several images per item, each with its own context (time, app, Chrome URL and tab title, window size, light/dark mode). Pick, delete or clear images in the thumbnail strip.
+- Global shortcuts (changeable in the menu): **⌃⌥S** area or window screenshot, **⌃⌥⇧S** full screen, **⌃⌥T** recognize text in an area and copy it (OCR). Alternatively: image from the clipboard, an image file, drag & drop, or a text-only item.
+- Editor: toolbar with select/move/delete, arrow, line, box, ellipse, pen, highlighter, pixelate, numbered markers ①②③, text; undo/redo; zoom. Image actions (they close the editor without filing an item): copy (⌘C), save as PNG (⇧⌘S), pin on top, drag into other apps. Copy recognized text keeps it open. Several images per item, each with its own context (time, app, Chrome URL and tab title, window size, light/dark mode). Pick, delete or clear images in the thumbnail strip.
 - Pick the target session from the sessions that are currently running (project, title, last prompt), write a note (“1 too far right, 2 wrong colour”), **⌘↩**.
 
 **Hand-off**
@@ -34,6 +34,16 @@ A small macOS menu bar app, three Claude Code hooks and one skill. Everything is
 - Claude Code CLI (`claude`), signed in. Delivery into a running chat needs a version with local session messaging (the `SendMessage` tool); otherwise items are worked on in the background.
 
 ## Install
+
+With Homebrew:
+
+```bash
+brew install bendemartin97/tap/agent-feedback
+brew services start agent-feedback   # menu bar app, also at login
+agent-feedback setup --hooks         # links hooks and skill, adds the hook entries
+```
+
+From a checkout:
 
 ```bash
 git clone https://github.com/bendemartin97/agent-feedback.git
