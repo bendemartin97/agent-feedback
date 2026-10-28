@@ -4,6 +4,8 @@ All notable changes to agent-feedback. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [0.5.0] – 2026-10-28
+
 ### Added
 
 - App icon (speech bubble) in Finder and dialogs; the menu bar shows it as a template icon (adapts to light and dark) instead of 📸.
@@ -69,7 +71,8 @@ First version.
 - Hooks for session registration and open-item hints; skill `feedback` for the agent side.
 - Install and uninstall scripts, tests for hooks and model.
 
-[Unreleased]: https://github.com/bendemartin97/agent-feedback/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/bendemartin97/agent-feedback/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/bendemartin97/agent-feedback/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/bendemartin97/agent-feedback/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/bendemartin97/agent-feedback/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/bendemartin97/agent-feedback/compare/f0cf96b...v0.2.0
