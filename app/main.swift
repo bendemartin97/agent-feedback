@@ -1,5 +1,5 @@
 // agent-feedback: menu bar app for feedback to Claude Code sessions.
-// The shortcut (default ⌃⌥S) captures an area; mark it up in the editor, pick a session, write a note.
+// The shortcut (default ⌃⌥S) captures an area (⌃⌥⇧S the full screen, ⌃⌥T copies recognized text); mark it up in the editor, pick a session, write a note.
 // Storage: <workspace>/feedback/{inbox,done,edit}/ or <project>/.feedback/…; the `feedback` skill works through them.
 // The inbox shows all items with their status: answer questions, accept results or request rework.
 
@@ -12,7 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var editor: FeedbackEditor?
     var inbox: InboxWindow!
     var capturing = false
-    var shortcut = Shortcut.saved
+    var shortcuts = Dictionary(uniqueKeysWithValues: Shortcut.Action.allCases.map { ($0, Shortcut.saved($0)) })
     /// Last known status per item, to report agent results.
     private var known: [String: FeedbackItem.Status] = [:]
     private var notifyUntil = Date.distantPast
@@ -32,8 +32,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         runner.onChange = { [weak self] in self?.refresh() }
         refresh()
         Timer.scheduledTimer(withTimeInterval: 4, repeats: true) { [weak self] _ in self?.refresh() }
-        Hotkey.handler = { [weak self] in self?.takeScreenshot() }
-        Hotkey.register(shortcut)
+        Hotkey.handler = { [weak self] action in
+            switch action {
+            case .area: self?.takeScreenshot()
+            case .fullScreen: self?.captureFullScreen()
+            case .text: self?.captureText()
+            }
+        }
+        for (action, s) in shortcuts { Hotkey.register(s, for: action) }
     }
 
     // MARK: Status
@@ -93,7 +99,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             i.target = self
             menu.addItem(i)
         }
-        add("Take Screenshot", #selector(takeScreenshot), key: shortcut.key.lowercased(), mods: shortcut.modifiers)
+        for (action, selector) in [(Shortcut.Action.area, #selector(takeScreenshot)), (.fullScreen, #selector(captureFullScreen)),
+                                   (.text, #selector(captureText))] {
+            let s = shortcuts[action]!
+            add(action.title, selector, key: s.key.lowercased(), mods: s.modifiers)
+        }
         add("Image from Clipboard …", #selector(fromClipboard))
         add("Image File …", #selector(fromFile))
         add("Text Only …", #selector(textOnly))
@@ -101,7 +111,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         let all = items()
         add("Feedback Inbox …  (\(all.filter(\.needsUser).count) for you, \(forAgents(all)) for agents)", #selector(openInbox))
         menu.addItem(.separator())
-        add("Change Shortcut … (\(shortcut.display))", #selector(changeShortcut))
+        let change = NSMenuItem(title: "Change Shortcut", action: nil, keyEquivalent: "")
+        change.submenu = NSMenu()
+        for (i, action) in Shortcut.Action.allCases.enumerated() {
+            let item = NSMenuItem(title: "\(action.title) … (\(shortcuts[action]!.display))", action: #selector(changeShortcut(_:)), keyEquivalent: "")
+            item.tag = i
+            item.target = self
+            change.submenu?.addItem(item)
+        }
+        menu.addItem(change)
         menu.addItem(withTitle: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
     }
 
@@ -151,29 +169,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         inbox.show()
     }
 
-    @objc private func changeShortcut() {
-        guard let s = recordShortcut() else { return }
-        shortcut = s
-        s.save()
-        Hotkey.register(s)
-        notify("Shortcut is now \(s.display)")
+    @objc private func changeShortcut(_ sender: NSMenuItem) {
+        let action = Shortcut.Action.allCases[sender.tag]
+        guard let s = recordShortcut(action) else { return }
+        shortcuts[action] = s
+        s.save(action)
+        Hotkey.register(s, for: action)
+        notify("\(action.title) is now \(s.display)")
     }
 
     // MARK: New items
 
-    @objc func takeScreenshot() {
-        guard !capturing, editor == nil else { return }
-        if !CGPreflightScreenCaptureAccess() {
-            CGRequestScreenCaptureAccess()
-            notify("Please allow Screen Recording for Agent Feedback.")
-            return
-        }
+    @objc func takeScreenshot() { capture(fullScreen: false) }
+
+    @objc private func captureFullScreen() { capture(fullScreen: true) }
+
+    private func capture(fullScreen: Bool) {
+        guard !capturing, editor == nil, screenAccess() else { return }
         capturing = true
-        Capture.screen { [weak self] page in
+        Capture.screen(fullScreen: fullScreen) { [weak self] page in
             guard let self else { return }
             self.capturing = false
             if let page { self.compose([page]) }
         }
+    }
+
+    /// Area capture straight to text on the clipboard, without the editor.
+    @objc private func captureText() {
+        guard !capturing, screenAccess() else { return }
+        capturing = true
+        Capture.screen { [weak self] page in
+            guard let self else { return }
+            guard let page else { self.capturing = false; return }
+            Capture.text(in: page.original) { text in
+                self.capturing = false
+                self.copyText(text)
+            }
+        }
+    }
+
+    private func copyText(_ text: String) {
+        guard !text.isEmpty else { return notify("No text recognized.") }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(text, forType: .string)
+        let lines = text.split(separator: "\n").count
+        notify("📋 Copied \(lines) line\(lines == 1 ? "" : "s") of text")
+    }
+
+    private func screenAccess() -> Bool {
+        guard !CGPreflightScreenCaptureAccess() else { return true }
+        CGRequestScreenCaptureAccess()
+        notify("Please allow Screen Recording for Agent Feedback.")
+        return false
     }
 
     @objc private func fromClipboard() {

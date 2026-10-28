@@ -8,6 +8,7 @@ final class MarkupCanvas: NSView, NSTextFieldDelegate {
     var tool: Mark.Kind? = .arrow
     var color = NSColor.systemRed
     var onChange: (() -> Void)?
+    var onCopy: (() -> Void)?
     private(set) var selected: Int?
     private var undoStack: [[Mark]] = []
     private var redoStack: [[Mark]] = []
@@ -30,7 +31,7 @@ final class MarkupCanvas: NSView, NSTextFieldDelegate {
 
     override func draw(_ dirtyRect: NSRect) {
         page.original.draw(in: bounds)
-        page.marks.forEach { $0.draw() }
+        page.marks.forEach { $0.draw(over: page.original) }
         if let selected, selected < page.marks.count {
             let r = page.marks[selected].bounds.insetBy(dx: -4 / zoom, dy: -4 / zoom)
             let path = NSBezierPath(rect: r)
@@ -117,7 +118,8 @@ final class MarkupCanvas: NSView, NSTextFieldDelegate {
             needsDisplay = true
             return
         }
-        guard field == nil, let last = page.marks.last, [.arrow, .box, .pen, .marker].contains(last.kind), tool != nil else { return }
+        guard field == nil, let last = page.marks.last, Mark.twoPoint.contains(last.kind) || [.pen, .marker].contains(last.kind),
+              tool != nil else { return }
         if last.kind == .pen || last.kind == .marker {
             page.marks[page.marks.count - 1].points.append(p)
         } else {
@@ -127,7 +129,7 @@ final class MarkupCanvas: NSView, NSTextFieldDelegate {
     }
 
     override func mouseUp(with event: NSEvent) {
-        guard tool == .arrow || tool == .box, field == nil, let last = page.marks.last, last.kind == tool,
+        guard let tool, Mark.twoPoint.contains(tool), field == nil, let last = page.marks.last, last.kind == tool,
               let a = last.points.first, let b = last.points.last, hypot(b.x - a.x, b.y - a.y) < 6 / zoom else { return }
         page.marks = undoStack.popLast() ?? Array(page.marks.dropLast())
         needsDisplay = true
@@ -137,6 +139,9 @@ final class MarkupCanvas: NSView, NSTextFieldDelegate {
     override func keyDown(with event: NSEvent) {
         if event.keyCode == 51 || event.keyCode == 117 { deleteSelected() } else { super.keyDown(with: event) }
     }
+
+    /// ⌘C on the image copies it with its marks.
+    @objc func copy(_ sender: Any?) { onCopy?() }
 
     private func editText(at p: NSPoint, replacing: Int?) {
         let size = 16 / zoom
@@ -368,6 +373,8 @@ final class FeedbackEditor: NSObject, NSWindowDelegate {
     private var current = 0
     private let strip = ThumbStrip()
     private let pagesLabel = NSTextField(labelWithString: "")
+    private let toast = NSTextField(labelWithString: "")
+    private let dragOut = DragOutButton()
     private let tools = NSSegmentedControl()
     private let colors = NSSegmentedControl()
     private let picker = NSPopUpButton()
@@ -377,7 +384,7 @@ final class FeedbackEditor: NSObject, NSWindowDelegate {
     private let choices: [Choice]
     private let done: (Result?) -> Void
     private var finished = false
-    private static let toolKinds: [Mark.Kind?] = [nil, .arrow, .box, .pen, .marker, .number, .text]
+    private static let toolKinds: [Mark.Kind?] = [nil, .arrow, .line, .box, .ellipse, .pen, .marker, .pixelate, .number, .text]
     private static let palette: [NSColor] = [.systemRed, .systemYellow, .systemBlue, .systemGreen]
 
     init(pages: [Page], note text: String = "", title: String = "📸 Feedback", choices: [Choice], preselect: Int,
@@ -388,7 +395,7 @@ final class FeedbackEditor: NSObject, NSWindowDelegate {
         let side: CGFloat = 340
         let img = pages.first?.original.size ?? NSSize(width: 700, height: 500)
         let s = min((vf.width * 0.85 - side) / img.width, vf.height * 0.85 / img.height, 1)
-        let size = NSSize(width: max(620, img.width * s) + side, height: max(620, img.height * s))
+        let size = NSSize(width: max(760, img.width * s) + side, height: max(620, img.height * s + 44))
         window = NSWindow(contentRect: NSRect(origin: .zero, size: size), styleMask: [.titled, .closable, .resizable, .miniaturizable],
                           backing: .buffered, defer: false)
         super.init()
@@ -396,18 +403,24 @@ final class FeedbackEditor: NSObject, NSWindowDelegate {
         window.level = .floating
         window.isReleasedWhenClosed = false
         window.delegate = self
-        window.minSize = NSSize(width: 860, height: 620)
+        window.minSize = NSSize(width: 1100, height: 620)
 
         let root = NSStackView()
         root.orientation = .horizontal
         root.spacing = 0
         root.alignment = .top
-        area.translatesAutoresizingMaskIntoConstraints = false
-        area.setContentHuggingPriority(.defaultLow, for: .horizontal)
         area.onImages = { [weak self] in self?.add($0) }
-        root.addArrangedSubview(area)
+        let bar = toolbar()
+        let left = NSStackView(views: [bar, area])
+        left.orientation = .vertical
+        left.spacing = 0
+        bar.widthAnchor.constraint(equalTo: left.widthAnchor).isActive = true
+        left.translatesAutoresizingMaskIntoConstraints = false
+        left.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        area.widthAnchor.constraint(equalTo: left.widthAnchor).isActive = true
+        root.addArrangedSubview(left)
         root.addArrangedSubview(sidebar(width: side, preselect: preselect))
-        area.heightAnchor.constraint(equalTo: root.heightAnchor).isActive = true
+        left.heightAnchor.constraint(equalTo: root.heightAnchor).isActive = true
         window.contentView = root
         note.string = text
         add(pages)
@@ -435,6 +448,7 @@ final class FeedbackEditor: NSObject, NSWindowDelegate {
             let c = MarkupCanvas(page: p)
             c.tool = Self.toolKinds[max(0, tools.selectedSegment)]
             c.color = Self.palette[max(0, colors.selectedSegment)]
+            c.onCopy = { [weak self] in self?.copyImage() }
             canvases.append(c)
         }
         current = canvases.count - 1
@@ -452,25 +466,6 @@ final class FeedbackEditor: NSObject, NSWindowDelegate {
     }
 
     private func sidebar(width: CGFloat, preselect: Int) -> NSView {
-        let toolNames = [("↖", "Select, move, ⌫ deletes, double-click edits text"), ("➚", "Arrow"), ("▢", "Box"),
-                         ("✎", "Pen"), ("▮", "Marker"), ("①", "Number"), ("T", "Text")]
-        tools.segmentCount = toolNames.count
-        for (i, t) in toolNames.enumerated() {
-            tools.setLabel(t.0, forSegment: i)
-            tools.setToolTip(t.1, forSegment: i)
-        }
-        tools.trackingMode = .selectOne
-        tools.selectedSegment = 1
-        tools.target = self
-        tools.action = #selector(pickTool)
-        let colorNames = ["Red", "Yellow", "Blue", "Green"]
-        colors.segmentCount = colorNames.count
-        for (i, c) in colorNames.enumerated() { colors.setLabel(c, forSegment: i) }
-        colors.trackingMode = .selectOne
-        colors.selectedSegment = 0
-        colors.target = self
-        colors.action = #selector(pickColor)
-
         func button(_ title: String, _ action: Selector, _ key: String = "", _ mods: NSEvent.ModifierFlags = .command, tip: String? = nil) -> NSButton {
             let b = NSButton(title: title, target: self, action: action)
             b.keyEquivalent = key
@@ -479,15 +474,6 @@ final class FeedbackEditor: NSObject, NSWindowDelegate {
             b.bezelStyle = .rounded
             return b
         }
-        let editRow = NSStackView(views: [
-            button("↶", #selector(undo), tip: "Undo ⌘Z"),
-            button("↷", #selector(redo), tip: "Redo ⇧⌘Z"),
-            button("⌫", #selector(deleteSelected), tip: "Delete selection (⌫)"),
-            button("−", #selector(zoomOut), "-", tip: "Zoom out ⌘−"),
-            button("⤢", #selector(zoomFit), "0", tip: "Fit ⌘0"),
-            button("+", #selector(zoomIn), "+", tip: "Zoom in ⌘+"),
-        ])
-        editRow.distribution = .fillEqually
 
         strip.onShow = { [weak self] i in self?.show(page: i) }
         strip.onDelete = { [weak self] in self?.removeSelected() }
@@ -495,7 +481,8 @@ final class FeedbackEditor: NSObject, NSWindowDelegate {
         pagesLabel.textColor = .secondaryLabelColor
         let addMenu = NSPopUpButton(frame: .zero, pullsDown: true)
         addMenu.addItem(withTitle: "+ Image")
-        for (title, action) in [("Take Screenshot", #selector(addShot)), ("From Clipboard  ⌘V", #selector(paste(_:))),
+        for (title, action) in [("Take Screenshot", #selector(addShot)), ("Capture Full Screen", #selector(addFullScreen)),
+                                ("From Clipboard  ⌘V", #selector(paste(_:))),
                                 ("Choose File …", #selector(addFile))] {
             let i = NSMenuItem(title: title, action: action, keyEquivalent: "")
             i.target = self
@@ -552,19 +539,169 @@ final class FeedbackEditor: NSObject, NSWindowDelegate {
             l.textColor = .secondaryLabelColor
             return l
         }
-        let stack = NSStackView(views: [label("MARK UP"), tools, colors, editRow, label("IMAGES"), pageRow,
+        let stack = NSStackView(views: [label("IMAGES"), pageRow,
                                         label("TO SESSION"), picker, sessionDetail, label("NOTE"), scroll, hint, now, buttons])
         stack.orientation = .vertical
         stack.alignment = .leading
         stack.spacing = 8
-        for v in [editRow, pageRow, sessionDetail, hint] { stack.setCustomSpacing(18, after: v) }
+        for v in [pageRow, sessionDetail, hint] { stack.setCustomSpacing(18, after: v) }
         stack.edgeInsets = NSEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
         stack.translatesAutoresizingMaskIntoConstraints = false
         stack.widthAnchor.constraint(equalToConstant: width).isActive = true
-        for v in [tools, colors, editRow, pageRow, picker, sessionDetail, scroll, hint, buttons] {
+        for v in [pageRow, picker, sessionDetail, scroll, hint, buttons] {
             v.widthAnchor.constraint(equalTo: stack.widthAnchor, constant: -32).isActive = true
         }
         return stack
+    }
+
+    /// Bar above the image: actions on the image, drawing tools, color, undo and zoom.
+    private func toolbar() -> NSView {
+        func icon(_ symbol: String, _ tip: String) -> NSImage? {
+            NSImage(systemSymbolName: symbol, accessibilityDescription: tip)?
+                .withSymbolConfiguration(.init(pointSize: 14, weight: .regular))
+        }
+        func button(_ symbol: String, _ tip: String, _ action: Selector, _ key: String = "", _ mods: NSEvent.ModifierFlags = .command) -> NSButton {
+            let b = NSButton(image: icon(symbol, tip) ?? NSImage(), target: self, action: action)
+            b.bezelStyle = .texturedRounded
+            b.isBordered = false
+            b.toolTip = tip
+            b.keyEquivalent = key
+            b.keyEquivalentModifierMask = mods
+            b.widthAnchor.constraint(equalToConstant: 30).isActive = true
+            return b
+        }
+        func separator() -> NSView {
+            let v = NSBox()
+            v.boxType = .separator
+            v.heightAnchor.constraint(equalToConstant: 20).isActive = true
+            return v
+        }
+
+        dragOut.image = icon("hand.draw", "Drag the image into another app")
+        dragOut.isBordered = false
+        dragOut.toolTip = "Drag the image into another app (Finder, Slack, Mail …) and close"
+        dragOut.widthAnchor.constraint(equalToConstant: 30).isActive = true
+        dragOut.file = { [weak self] in self?.renderedFile() }
+        dragOut.dropped = { [weak self] in self?.cancel() }
+
+        let tools = [("cursorarrow", "Select, move, ⌫ deletes, double-click edits text"), ("arrow.up.right", "Arrow"),
+                     ("line.diagonal", "Line"), ("rectangle", "Box"), ("circle", "Ellipse"), ("pencil", "Pen"),
+                     ("highlighter", "Marker"), ("checkerboard.rectangle", "Pixelate (hide sensitive data)"),
+                     ("1.circle", "Number"), ("textformat", "Text")]
+        self.tools.segmentCount = tools.count
+        for (i, t) in tools.enumerated() {
+            self.tools.setImage(icon(t.0, t.1), forSegment: i)
+            self.tools.setToolTip(t.1, forSegment: i)
+            self.tools.setWidth(28, forSegment: i)
+        }
+        self.tools.trackingMode = .selectOne
+        self.tools.segmentStyle = .separated
+        self.tools.selectedSegment = 1
+        self.tools.target = self
+        self.tools.action = #selector(pickTool)
+
+        colors.segmentCount = Self.palette.count
+        for (i, (c, name)) in zip(Self.palette, ["Red", "Yellow", "Blue", "Green"]).enumerated() {
+            colors.setImage(NSImage(size: NSSize(width: 12, height: 12), flipped: false) { r in
+                c.setFill()
+                NSBezierPath(ovalIn: r).fill()
+                return true
+            }, forSegment: i)
+            colors.setToolTip(name, forSegment: i)
+            colors.setWidth(24, forSegment: i)
+        }
+        colors.trackingMode = .selectOne
+        colors.segmentStyle = .separated
+        colors.selectedSegment = 0
+        colors.target = self
+        colors.action = #selector(pickColor)
+
+        toast.font = .systemFont(ofSize: 11)
+        toast.textColor = .secondaryLabelColor
+        toast.lineBreakMode = .byTruncatingTail
+        toast.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
+        toast.setContentHuggingPriority(.defaultLow, for: .horizontal)
+
+        let bar = NSStackView(views: [
+            button("doc.on.doc", "Copy image with marks and close (⌘C)", #selector(copyImage)),
+            button("square.and.arrow.down", "Save as PNG and close (⇧⌘S)", #selector(saveAs), "s", [.command, .shift]),
+            button("pin", "Pin the image on top and close", #selector(pin)),
+            dragOut,
+            button("text.viewfinder", "Copy the text in the image (OCR)", #selector(copyText)),
+            separator(), self.tools, separator(), colors, separator(),
+            button("arrow.uturn.backward", "Undo ⌘Z", #selector(undo)),
+            button("arrow.uturn.forward", "Redo ⇧⌘Z", #selector(redo)),
+            button("trash", "Delete selection (⌫)", #selector(deleteSelected)),
+            separator(),
+            button("minus.magnifyingglass", "Zoom out ⌘−", #selector(zoomOut), "-"),
+            button("arrow.up.left.and.down.right.magnifyingglass", "Fit ⌘0", #selector(zoomFit), "0"),
+            button("plus.magnifyingglass", "Zoom in ⌘+", #selector(zoomIn), "+"),
+            toast,
+        ])
+        bar.spacing = 6
+        bar.edgeInsets = NSEdgeInsets(top: 8, left: 12, bottom: 8, right: 12)
+        bar.setHuggingPriority(.defaultHigh, for: .vertical)
+        return bar
+    }
+
+    private func flash(_ text: String) {
+        toast.stringValue = text
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+            if self?.toast.stringValue == text { self?.toast.stringValue = "" }
+        }
+    }
+
+    private func renderedPNG() -> Data? {
+        guard let canvas else { NSSound.beep(); return nil }
+        canvas.commitText()
+        return canvas.page.render()
+    }
+
+    /// The current image with marks as a PNG in a temporary folder, for dragging out.
+    private func renderedFile() -> URL? {
+        guard let png = renderedPNG() else { return nil }
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd_HHmmss"
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("Feedback \(f.string(from: Date())).png")
+        return (try? png.write(to: url)) == nil ? nil : url
+    }
+
+    @objc private func copyImage() {
+        guard let png = renderedPNG(), let image = NSImage(data: png) else { return }
+        let pb = NSPasteboard.general
+        pb.clearContents()
+        pb.writeObjects([image])
+        pb.setData(png, forType: .png)
+        cancel()
+    }
+
+    @objc private func saveAs() {
+        guard let png = renderedPNG() else { return }
+        let panel = NSSavePanel()
+        panel.allowedContentTypes = [.png]
+        panel.nameFieldStringValue = renderedFile()?.lastPathComponent ?? "Feedback.png"
+        panel.beginSheetModal(for: window) { [weak self] response in
+            guard response == .OK, let url = panel.url else { return }
+            if (try? png.write(to: url)) != nil { self?.cancel() } else { NSSound.beep() }
+        }
+    }
+
+    @objc private func pin() {
+        guard let png = renderedPNG(), let image = NSImage(data: png) else { return }
+        PinWindow.show(image)
+        cancel()
+    }
+
+    @objc private func copyText() {
+        guard let canvas else { return NSSound.beep() }
+        flash("Recognizing text …")
+        Capture.text(in: canvas.page.original) { [weak self] text in
+            guard !text.isEmpty else { self?.flash("No text recognized"); return }
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
+            let lines = text.split(separator: "\n").count
+            self?.flash("📋 \(lines) line\(lines == 1 ? "" : "s") of text copied")
+        }
     }
 
     @objc private func pickTool() {
@@ -596,11 +733,14 @@ final class FeedbackEditor: NSObject, NSWindowDelegate {
     @objc private func zoomOut() { area.zoom(by: 0.8) }
     @objc private func zoomFit() { area.fit() }
 
-    /// Hide the window, capture another area, append it as a new image.
-    @objc private func addShot() {
+    @objc private func addShot() { shoot(fullScreen: false) }
+    @objc private func addFullScreen() { shoot(fullScreen: true) }
+
+    /// Hide the window, capture another area (or the full screen), append it as a new image.
+    private func shoot(fullScreen: Bool) {
         canvas?.commitText()
         window.orderOut(nil)
-        Capture.screen { [weak self] page in
+        Capture.screen(fullScreen: fullScreen) { [weak self] page in
             guard let self else { return }
             if let page { self.add([page]) }
             self.show()
@@ -681,5 +821,53 @@ final class FeedbackEditor: NSObject, NSWindowDelegate {
         finished = true
         if close { window.close() }
         done(result)
+    }
+}
+
+/// Drags the current image (as a PNG file) into other apps.
+final class DragOutButton: NSButton, NSDraggingSource {
+    var file: (() -> URL?)?
+    var dropped: (() -> Void)?
+
+    override func mouseDown(with event: NSEvent) {
+        guard let url = file?() else { return NSSound.beep() }
+        let item = NSDraggingItem(pasteboardWriter: url as NSURL)
+        item.setDraggingFrame(bounds, contents: NSImage(contentsOf: url) ?? image)
+        beginDraggingSession(with: [item], event: event, source: self)
+    }
+
+    func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation { .copy }
+
+    func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
+        if !operation.isEmpty { dropped?() }
+    }
+}
+
+/// Floating window that keeps an image on top of everything, on every space, until closed.
+final class PinWindow: NSPanel {
+    private static var open: [PinWindow] = []
+
+    static func show(_ image: NSImage) {
+        let s = min(1, 640 / max(image.size.width, 1), 480 / max(image.size.height, 1))
+        let w = PinWindow(contentRect: NSRect(origin: .zero, size: NSSize(width: image.size.width * s, height: image.size.height * s)),
+                          styleMask: [.titled, .closable, .resizable, .utilityWindow, .nonactivatingPanel], backing: .buffered, defer: false)
+        w.title = "📌 Pinned"
+        w.level = .floating
+        w.hidesOnDeactivate = false
+        w.isReleasedWhenClosed = false
+        w.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        w.isMovableByWindowBackground = true
+        w.contentAspectRatio = image.size
+        let view = NSImageView(image: image)
+        view.imageScaling = .scaleProportionallyUpOrDown
+        w.contentView = view
+        w.center()
+        w.orderFrontRegardless()
+        open.append(w)
+    }
+
+    override func close() {
+        super.close()
+        Self.open.removeAll { $0 === self }
     }
 }

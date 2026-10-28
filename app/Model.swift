@@ -1,4 +1,5 @@
 import AppKit
+import CoreImage
 
 /// Feedback folder of a session: `<workspaces>/<name>/feedback` inside a workspace, otherwise `<cwd>/.feedback`.
 /// Same rule as `hooks/feedback-dir.sh`, which the `feedback` skill uses.
@@ -31,7 +32,10 @@ struct PageContext: Codable {
 /// A mark, in image coordinates (points of `NSImage.size`, origin bottom left).
 /// `width` is the stroke width, the radius for numbers, the font size for text.
 struct Mark: Codable {
-    enum Kind: String, Codable { case arrow, box, pen, marker, number, text }
+    enum Kind: String, Codable { case arrow, line, box, ellipse, pen, marker, pixelate, number, text }
+
+    /// Kinds drawn by dragging from a start to an end point.
+    static let twoPoint: Set<Kind> = [.arrow, .line, .box, .ellipse, .pixelate]
     var kind: Kind
     var rgba: [CGFloat]
     var width: CGFloat
@@ -100,9 +104,23 @@ struct Mark: Codable {
         return hypot(p.x - (a.x + t * dx), p.y - (a.y + t * dy)) <= width * 2 + tolerance
     }
 
-    func draw() {
+    private static let ci = CIContext()
+
+    /// `image` is the original underneath, needed for pixelating.
+    func draw(over image: NSImage) {
         guard let first = points.first, let last = points.last else { return }
+        let rect = NSRect(x: min(first.x, last.x), y: min(first.y, last.y), width: abs(last.x - first.x), height: abs(last.y - first.y))
         switch kind {
+        case .pixelate:
+            guard rect.width >= 1, rect.height >= 1, let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return }
+            let sx = CGFloat(cg.width) / image.size.width, sy = CGFloat(cg.height) / image.size.height
+            let px = CGRect(x: rect.minX * sx, y: rect.minY * sy, width: rect.width * sx, height: rect.height * sy).integral
+            let out = CIImage(cgImage: cg).clampedToExtent()
+                .applyingFilter("CIPixellate", parameters: [kCIInputScaleKey: 14 * sx, kCIInputCenterKey: CIVector(x: px.minX, y: px.minY)])
+                .cropped(to: px)
+            guard let tile = Self.ci.createCGImage(out, from: px) else { return }
+            NSImage(cgImage: tile, size: px.size).draw(in: NSRect(x: px.minX / sx, y: px.minY / sy, width: px.width / sx, height: px.height / sy))
+            return
         case .number:
             color.setFill()
             NSBezierPath(ovalIn: bounds).fill()
@@ -125,8 +143,9 @@ struct Mark: Codable {
         path.lineJoinStyle = .round
         switch kind {
         case .box:
-            path.appendRect(NSRect(x: min(first.x, last.x), y: min(first.y, last.y),
-                                   width: abs(last.x - first.x), height: abs(last.y - first.y)))
+            path.appendRect(rect)
+        case .ellipse:
+            path.appendOval(in: rect)
         case .arrow:
             let head = arrowHead
             path.move(to: first)
@@ -165,7 +184,7 @@ struct Page {
         NSGraphicsContext.saveGraphicsState()
         NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
         original.draw(in: NSRect(origin: .zero, size: original.size))
-        marks.forEach { $0.draw() }
+        marks.forEach { $0.draw(over: original) }
         NSGraphicsContext.restoreGraphicsState()
         return rep.representation(using: .png, properties: [:])
     }

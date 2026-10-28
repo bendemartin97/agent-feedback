@@ -1,4 +1,5 @@
 import AppKit
+import Vision
 
 /// Where images come from: screen area, clipboard or file. Each image gets its own context.
 enum Capture {
@@ -6,18 +7,39 @@ enum Capture {
     static var previousApp: NSRunningApplication?
 
     /// Starts `screencapture -i` (drag an area, Space = window, Esc = cancel); nil when cancelled.
-    static func screen(_ done: @escaping (Page?) -> Void) {
+    /// `fullScreen` captures the whole screen under the mouse pointer without asking.
+    static func screen(fullScreen: Bool = false, _ done: @escaping (Page?) -> Void) {
         let context = currentContext()
         let file = FileManager.default.temporaryDirectory.appendingPathComponent("feedback-\(UUID().uuidString).png")
+        var args = ["-i", "-x", file.path]
+        if fullScreen, let main = NSScreen.screens.first,
+           let screen = NSScreen.screens.first(where: { NSMouseInRect(NSEvent.mouseLocation, $0.frame, false) }) ?? NSScreen.main {
+            let f = screen.frame
+            args = ["-x", "-R", "\(Int(f.minX)),\(Int(main.frame.maxY - f.maxY)),\(Int(f.width)),\(Int(f.height))", file.path]
+        }
         DispatchQueue.global().async {
             let p = Process()
             p.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
-            p.arguments = ["-i", "-x", file.path]
+            p.arguments = args
             try? p.run()
             p.waitUntilExit()
             let image = NSImage(contentsOf: file)
             try? FileManager.default.removeItem(at: file)
             DispatchQueue.main.async { done(image.map { Page(original: $0, context: context) }) }
+        }
+    }
+
+    /// Text in the image (Vision, German and English), lines top to bottom; empty if none was found.
+    static func text(in image: NSImage, _ done: @escaping (String) -> Void) {
+        guard let cg = image.cgImage(forProposedRect: nil, context: nil, hints: nil) else { return done("") }
+        DispatchQueue.global(qos: .userInitiated).async {
+            let request = VNRecognizeTextRequest()
+            request.recognitionLevel = .accurate
+            request.recognitionLanguages = ["de-DE", "en-US"]
+            request.usesLanguageCorrection = true
+            try? VNImageRequestHandler(cgImage: cg).perform([request])
+            let text = (request.results ?? []).compactMap { $0.topCandidates(1).first?.string }.joined(separator: "\n")
+            DispatchQueue.main.async { done(text) }
         }
     }
 
