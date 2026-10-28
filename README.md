@@ -1,8 +1,8 @@
 # agent-feedback
 
-Give visual feedback to [Claude Code](https://claude.com/claude-code) sessions the way you would to a colleague: grab a screenshot, draw on it, write a note, hand it to a running session. The session picks it up in its chat, fixes exactly that, writes down what it changed, and you accept the result or send it back.
+Give visual feedback to [Claude Code](https://claude.com/claude-code) and [Codex](https://github.com/openai/codex) sessions the way you would to a colleague: grab a screenshot, draw on it, write a note, hand it to a running session. The session picks it up in its chat, fixes exactly that, writes down what it changed, and you accept the result or send it back.
 
-A small macOS menu bar app, three Claude Code hooks and one skill. Everything is plain files: no server, no account, no database.
+A small macOS menu bar app, three hooks and one skill. Everything is plain files: no server, no account, no database.
 
 ![Menu bar: capture an area, the full screen or just its text; open the inbox](docs/menu.png)
 
@@ -34,6 +34,7 @@ A small macOS menu bar app, three Claude Code hooks and one skill. Everything is
 - Xcode Command Line Tools (`swiftc`): `xcode-select --install`
 - `jq`: `brew install jq`
 - Claude Code CLI (`claude`), signed in. Delivery into a running chat needs a version with local session messaging (the `SendMessage` tool); otherwise items are worked on in the background.
+- Optional: Codex CLI (`codex`) with hooks (0.114 or later).
 
 ## Install
 
@@ -58,6 +59,14 @@ This builds `~/Applications/AgentFeedback.app`, starts it at login (LaunchAgent)
 On the first screenshot macOS asks for **Screen Recording**, on the first screenshot taken in Chrome for **Automation** (to read the tab URL). If a code-signing identity “Apple Development” exists, the app is signed with it so these permissions survive rebuilds; otherwise it is signed ad hoc and macOS may ask again after each build. Set `AGENT_FEEDBACK_BUNDLE_ID` for `build.sh`/`uninstall.sh` to use your own bundle identifier.
 
 Sessions show up in the app once you have sent at least one prompt in them after installing.
+
+### Codex
+
+```bash
+agent-feedback setup --codex   # or ./install.sh --codex
+```
+
+Links the skill to `~/.agents/skills/feedback` and adds the same hooks to `~/.codex/hooks.json` (backup next to it). Codex asks you to trust new hooks: run `/hooks` once in Codex and approve them. Codex sessions then show up in the picker with “(Codex)”. Codex has no session messaging, so “Send to the session now” works through a background fork (`codex exec fork <session> …`, sandbox `workspace-write` plus the feedback folder); a session that is still open also sees its open items before the next prompt.
 
 `./uninstall.sh` removes the app, the LaunchAgent and the links; your feedback folders and settings stay.
 

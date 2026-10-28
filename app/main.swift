@@ -241,7 +241,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     @objc private func textOnly() { compose([]) }
 
     private func choices(for sessions: [AgentSession]) -> [FeedbackEditor.Choice] {
-        sessions.map { .init(target: Target(id: $0.id, start: $0.start, label: $0.label), dir: feedbackDir(for: $0.root), detail: $0.detail) }
+        sessions.map { .init(target: Target(id: $0.id, start: $0.start, label: $0.label, agent: $0.agent), dir: feedbackDir(for: $0.root), detail: $0.detail) }
     }
 
     /// Editor for a new item.
@@ -301,7 +301,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         guard editor == nil else { return }
         let sessions = activeSessions()
         let current = sessions.first { $0.id == item.sessionID }
-        var list = [FeedbackEditor.Choice(target: current.map { Target(id: $0.id, start: $0.start, label: $0.label) } ?? item.target,
+        var list = [FeedbackEditor.Choice(target: current.map { Target(id: $0.id, start: $0.start, label: $0.label, agent: $0.agent) } ?? item.target,
                                           dir: item.dir, detail: current?.detail ?? "Session ended – item stays in the folder")]
         list += choices(for: sessions.filter { feedbackDir(for: $0.root) == item.dir && $0.id != item.sessionID })
         editor = FeedbackEditor(pages: store.pages(of: item), note: item.note.hasPrefix("(no note") || item.note.hasPrefix("(keine Notiz") ? "" : item.note,

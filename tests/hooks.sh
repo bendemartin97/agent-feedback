@@ -34,6 +34,10 @@ echo "{\"session_id\":\"s2\",\"cwd\":\"$T/proj\",\"prompt\":\"Make the\\nbutton 
 check "session: last prompt on one line" "Make the button blue" "$(jq -r .prompt "$S/s2.json")"
 echo "{\"session_id\":\"s2\",\"cwd\":\"$T/proj\"}" | CLAUDE_PROJECT_DIR="$T/proj" "$D/hooks/session.sh" update
 check "session: prompt kept without a new one" "Make the button blue" "$(jq -r .prompt "$S/s2.json")"
+check "session: agent defaults to claude" "claude" "$(jq -r .agent "$S/s2.json")"
+echo "{\"session_id\":\"c1\",\"cwd\":\"$T/proj\",\"prompt\":\"hi\"}" | "$D/hooks/session.sh" update codex
+check "session: codex agent" "codex" "$(jq -r .agent "$S/c1.json")"
+check "session: codex start = cwd" "$T/proj" "$(jq -r .start "$S/c1.json")"
 echo '{"session_id":"s3","cwd":"/tmp"}' | AGENT_FEEDBACK_RUN=1 "$D/hooks/session.sh" update
 check "session: own runs not reported" "no" "$([ -f "$S/s3.json" ] && echo yes || echo no)"
 echo '{"session_id":"s1"}' | "$D/hooks/session.sh" end

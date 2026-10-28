@@ -27,6 +27,15 @@ enum Config {
                           "/opt/homebrew/bin/claude", "/usr/local/bin/claude"].compactMap { $0 }
         return candidates.first { FileManager.default.isExecutableFile(atPath: $0) }.map(URL.init(fileURLWithPath:))
     }
+
+    /// codex CLI: the setting `codex`, otherwise Homebrew, npm or nvm locations.
+    static var codex: URL? {
+        let nvm = homeURL.appendingPathComponent(".nvm/versions/node")
+        let versions = ((try? FileManager.default.contentsOfDirectory(atPath: nvm.path)) ?? []).sorted(by: >)
+        let candidates = [path("codex"), "/opt/homebrew/bin/codex", "/usr/local/bin/codex", homeURL.path + "/.local/bin/codex"].compactMap { $0 }
+            + versions.map { nvm.appendingPathComponent($0).appendingPathComponent("bin/codex").path }
+        return candidates.first { FileManager.default.isExecutableFile(atPath: $0) }.map(URL.init(fileURLWithPath:))
+    }
 }
 
 /// A running agent session, reported by `hooks/session.sh`.
@@ -37,6 +46,8 @@ struct AgentSession {
     let start: String
     let project: String
     let title: String
+    /// `claude` or `codex`.
+    var agent = "claude"
     /// Last prompt, shortened.
     let prompt: String
     let updated: Date
@@ -47,7 +58,7 @@ struct AgentSession {
     /// Main line in the picker: “Fred · project — headline”.
     var label: String {
         let topic = !headline.isEmpty ? headline : !title.isEmpty ? title : ""
-        return (pet.isEmpty ? "" : "\(pet) · ") + project + (topic.isEmpty ? "" : " — \(topic)")
+        return (pet.isEmpty ? "" : "\(pet) · ") + project + (topic.isEmpty ? "" : " — \(topic)") + (agent == "claude" ? "" : " (\(agent.capitalized))")
     }
 
     /// Second line: last prompt and how long ago it was.
@@ -75,6 +86,7 @@ func activeSessions() -> [AgentSession] {
               let id = j["id"], let root = j["root"], !root.isEmpty else { return nil }
         var s = AgentSession(id: id, root: root, start: j["start"] ?? root, project: j["project"] ?? "",
                              title: j["title"] ?? "", prompt: j["prompt"] ?? "", updated: updated)
+        s.agent = j["agent"] ?? "claude"
         s.pet = pets[id]?["name"] ?? ""
         s.headline = pets[id]?["headline"] ?? ""
         return s

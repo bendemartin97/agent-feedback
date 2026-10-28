@@ -1,22 +1,33 @@
 #!/bin/bash
-# agent-feedback setup [--hooks]   links hooks and skill into ~/.claude (--hooks also adds them to settings.json)
-# agent-feedback unlink            removes those links again
+# agent-feedback setup [--hooks] [--codex]   links hooks and skill (--hooks also adds them to ~/.claude/settings.json,
+#                                            --codex sets up Codex: skill in ~/.agents/skills, hooks in ~/.codex/hooks.json)
+# agent-feedback unlink                      removes those links again
 set -euo pipefail
 D="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
 # Homebrew: link through opt/ so the links survive upgrades.
 case "$D" in */Cellar/agent-feedback/*) D="$(cd "$D/../../../../opt/agent-feedback/libexec" && pwd)" ;; esac
 HOME_DIR="$HOME/.claude/agent-feedback"
 SETTINGS="$HOME/.claude/settings.json"
+CODEX_HOOKS="$HOME/.codex/hooks.json"
 
 case "${1-}" in
   setup) shift ;;
   unlink)
     rm -f "$HOME/.claude/skills/feedback"
+    [ -L "$HOME/.agents/skills/feedback" ] && rm -f "$HOME/.agents/skills/feedback"
     rm -rf "$HOME_DIR/bin"
-    echo "Links removed. Hook entries containing \"agent-feedback\" in $SETTINGS stay; delete them yourself."
+    echo "Links removed. Hook entries containing \"agent-feedback\" in $SETTINGS and $CODEX_HOOKS stay; delete them yourself."
     exit 0 ;;
-  *) sed -n '2,3s/^# //p' "$0"; exit 1 ;;
+  *) sed -n '2,4s/^# //p' "$0"; exit 1 ;;
 esac
+CLAUDE_HOOKS=false CODEX=false
+for arg in "$@"; do
+  case "$arg" in
+    --hooks) CLAUDE_HOOKS=true ;;
+    --codex) CODEX=true ;;
+    *) echo "Unknown option: $arg" >&2; exit 1 ;;
+  esac
+done
 
 mkdir -p "$HOME_DIR/bin" "$HOME/.claude/skills"
 for f in common.sh feedback-dir.sh feedback-hint.sh session.sh; do ln -sfn "$D/hooks/$f" "$HOME_DIR/bin/$f"; done
@@ -24,30 +35,46 @@ ln -sfn "$D/skills/feedback" "$HOME/.claude/skills/feedback"
 [ -f "$HOME_DIR/config.json" ] || echo '{}' > "$HOME_DIR/config.json"
 echo "Hooks: $HOME_DIR/bin  ·  Skill: ~/.claude/skills/feedback  ·  Settings: $HOME_DIR/config.json"
 
-BIN='~/.claude/agent-feedback/bin'
-HOOKS=$(jq -n --arg b "$BIN" '{
-  UserPromptSubmit: [{hooks: [
-    {type: "command", command: ($b + "/session.sh update"), timeout: 5},
-    {type: "command", command: ($b + "/feedback-hint.sh"), timeout: 5}]}],
-  SessionEnd: [{hooks: [{type: "command", command: ($b + "/session.sh end"), timeout: 5}]}]
-}')
+# hooks_for <agent>: hook entries in the format shared by Claude Code and Codex.
+hooks_for() {
+  jq -n --arg b '~/.claude/agent-feedback/bin' --arg a "$1" '{
+    UserPromptSubmit: [{hooks: [
+      {type: "command", command: ($b + "/session.sh update " + $a), timeout: 5},
+      {type: "command", command: ($b + "/feedback-hint.sh"), timeout: 5}]}],
+    SessionEnd: [{hooks: [{type: "command", command: ($b + "/session.sh end " + $a), timeout: 5}]}]
+  }'
+}
 
-if [ "${1-}" != "--hooks" ]; then
+# add_hooks <file> <entries>: merges the entries under "hooks" unless agent-feedback is already in there.
+add_hooks() {
+  if [ -f "$1" ] && grep -q 'agent-feedback' "$1"; then
+    echo "Hooks are already set up in $1."
+    return
+  fi
+  mkdir -p "$(dirname "$1")"
+  [ -f "$1" ] || echo '{}' > "$1"
+  cp "$1" "$1.bak-agent-feedback"
+  MERGED=$(jq --argjson add "$2" '
+    .hooks //= {} |
+    reduce ($add | keys[]) as $event (.; .hooks[$event] = ((.hooks[$event] // []) + $add[$event]))' "$1")
+  # Write into the existing file so a symlink (e.g. into a dotfiles repo) is preserved.
+  printf '%s\n' "$MERGED" > "$1"
+  echo "Hooks added to $1 (backup: $1.bak-agent-feedback)."
+}
+
+if $CLAUDE_HOOKS; then
+  add_hooks "$SETTINGS" "$(hooks_for claude)"
+  echo "New Claude Code sessions will register from now on."
+else
   echo
   echo "Still to add to $SETTINGS under \"hooks\" (or agent-feedback setup --hooks):"
-  echo "$HOOKS"
-  exit 0
+  hooks_for claude
 fi
 
-if [ -f "$SETTINGS" ] && grep -q 'agent-feedback' "$SETTINGS"; then
-  echo "Hooks are already set up."
-  exit 0
+if $CODEX; then
+  mkdir -p "$HOME/.agents/skills"
+  ln -sfn "$D/skills/feedback" "$HOME/.agents/skills/feedback"
+  echo "Codex skill: ~/.agents/skills/feedback"
+  add_hooks "$CODEX_HOOKS" "$(hooks_for codex)"
+  echo "In Codex, run /hooks once and trust the agent-feedback hooks; new Codex sessions register after that."
 fi
-[ -f "$SETTINGS" ] || echo '{}' > "$SETTINGS"
-cp "$SETTINGS" "$SETTINGS.bak-agent-feedback"
-MERGED=$(jq --argjson add "$HOOKS" '
-  .hooks //= {} |
-  reduce ($add | keys[]) as $event (.; .hooks[$event] = ((.hooks[$event] // []) + $add[$event]))' "$SETTINGS")
-# Write into the existing file so a symlink (e.g. into a dotfiles repo) is preserved.
-printf '%s\n' "$MERGED" > "$SETTINGS"
-echo "Hooks added (backup: $SETTINGS.bak-agent-feedback). New Claude Code sessions will register from now on."

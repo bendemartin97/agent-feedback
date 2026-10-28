@@ -1,7 +1,7 @@
 #!/bin/bash
-# Claude Code hook: reports running sessions to agent-feedback, so the app offers them for selection.
-# Usage: session.sh update (UserPromptSubmit) | end (SessionEnd), hook payload as JSON on stdin.
-# Writes ~/.claude/agent-feedback/sessions/<session_id>.json with id, root, start, project, title, prompt.
+# Claude Code / Codex hook: reports running sessions to agent-feedback, so the app offers them for selection.
+# Usage: session.sh update|end [claude|codex] (UserPromptSubmit / SessionEnd), hook payload as JSON on stdin.
+# Writes ~/.claude/agent-feedback/sessions/<session_id>.json with id, agent, root, start, project, title, prompt.
 # root = base for the feedback folder, start = start directory (where the session can be resumed with --resume).
 # Runs started by agent-feedback (AGENT_FEEDBACK_RUN=1) do not show up in the picker.
 [ -n "${AGENT_FEEDBACK_RUN-}" ] && exit 0
@@ -29,6 +29,6 @@ PROMPT=$(jq -r '.prompt // empty' <<<"$INPUT" 2>/dev/null | tr '\n\t' '  ' | sed
 [ -z "$PROMPT" ] && [ -f "$DIR/$SID.json" ] && PROMPT=$(jq -r '.prompt // empty' "$DIR/$SID.json" 2>/dev/null)
 
 mkdir -p "$DIR"
-jq -cn --arg id "$SID" --arg root "$ROOT" --arg start "${CLAUDE_PROJECT_DIR:-$CWD}" --arg project "$PROJECT" --arg title "$TITLE" --arg prompt "$PROMPT" \
-  '{id: $id, root: $root, start: $start, project: $project, title: $title, prompt: $prompt}' > "$DIR/$SID.json"
+jq -cn --arg id "$SID" --arg agent "${2:-claude}" --arg root "$ROOT" --arg start "${CLAUDE_PROJECT_DIR:-$CWD}" --arg project "$PROJECT" --arg title "$TITLE" --arg prompt "$PROMPT" \
+  '{id: $id, agent: $agent, root: $root, start: $start, project: $project, title: $title, prompt: $prompt}' > "$DIR/$SID.json"
 exit 0

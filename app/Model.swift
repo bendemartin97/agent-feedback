@@ -195,11 +195,12 @@ struct Page {
     }
 }
 
-/// Where an item belongs: session ID, start directory (for `--resume`) and display name.
+/// Where an item belongs: session ID, start directory (for `--resume`), display name and agent (`claude`, `codex`).
 struct Target {
     var id: String
     var start: String
     var label: String
+    var agent = "claude"
 }
 
 /// A feedback item: an `.md` in `inbox/` or `done/` with its images.
@@ -228,7 +229,8 @@ struct FeedbackItem {
     }
     var imageURLs: [URL] { images.map { md.deletingLastPathComponent().appendingPathComponent($0) } }
 
-    var target: Target { Target(id: sessionID, start: start, label: sessionLabel) }
+    var agent: String { field("agent").isEmpty ? "claude" : field("agent") }
+    var target: Target { Target(id: sessionID, start: start, label: sessionLabel, agent: agent) }
 
     /// German frontmatter keys of items written before the switch to English.
     static let legacyKeys = ["project": "projekt", "time": "zeit", "window": "fenster", "appearance": "darstellung",
@@ -437,6 +439,7 @@ final class FeedbackStore {
             "session: \(target.label)",
             "session_id: \(target.id)",
             "start: \(target.start)",
+            "agent: \(target.agent)",
             "project: \(dir.deletingLastPathComponent().lastPathComponent)",
             "time: \(existing?.field("time") ?? f.string(from: first.at))",
             "app: \(first.source)",
@@ -525,6 +528,7 @@ final class FeedbackStore {
         set("session", session.label)
         set("session_id", session.id)
         set("start", session.start)
+        set("agent", session.agent)
         let body = item.text.components(separatedBy: "\n---\n").dropFirst().joined(separator: "\n---\n")
         try? (lines.joined(separator: "\n") + "\n---\n" + body).write(to: item.md, atomically: true, encoding: .utf8)
     }

@@ -1,5 +1,5 @@
 #!/bin/bash
-# UserPromptSubmit hook: tells the agent about the open feedback items assigned to it
+# UserPromptSubmit hook (Claude Code and Codex): tells the agent about the open feedback items assigned to it
 # (app agent-feedback, skill feedback). An item is an .md; its images are listed under `images:`
 # (older items: `bilder:`). Items without session_id apply to every session in the folder; items with an
 # open question are left out (the user answers those).

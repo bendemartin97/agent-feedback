@@ -195,13 +195,23 @@ final class Runner {
     /// Works through the item in the background: fork of the session, otherwise a fresh session in the project.
     private func fork(_ job: Job, key: String) {
         let prompt = "work through feedback – only this item: \(job.md.path)"
-        let args = job.target.id.isEmpty
-            ? ["-p", "--output-format", "json", prompt]
-            : ["-p", "--resume", job.target.id, "--fork-session", "--output-format", "json", prompt]
+        let codex = job.target.agent == "codex"
+        let args: [String]
+        if codex {
+            // Workspace sandbox plus the feedback folder, which can lie outside the checkout.
+            let feedback = job.md.deletingLastPathComponent().deletingLastPathComponent().path
+            let config = ["-c", "sandbox_mode=\"workspace-write\"", "-c", "sandbox_workspace_write.writable_roots=[\"\(feedback)\"]",
+                          "--skip-git-repo-check"]
+            args = job.target.id.isEmpty ? ["exec"] + config + [prompt] : ["exec", "fork"] + config + [job.target.id, prompt]
+        } else {
+            args = job.target.id.isEmpty
+                ? ["-p", "--output-format", "json", prompt]
+                : ["-p", "--resume", job.target.id, "--fork-session", "--output-format", "json", prompt]
+        }
         let p = Process()
         running[key] = Run(job: job, process: p, peer: nil)
         DispatchQueue.global(qos: .userInitiated).async {
-            let (ok, output) = Self.claude(args, cwd: job.cwd, process: p)
+            let (ok, output) = codex ? Self.codex(args, cwd: job.cwd, process: p) : Self.claude(args, cwd: job.cwd, process: p)
             DispatchQueue.main.async {
                 self.running[key] = nil
                 if self.cancelled.remove(key) == nil, !ok {
@@ -241,6 +251,40 @@ final class Runner {
         if p.terminationStatus != 0 || obj?["is_error"] as? Bool == true {
             let err = String(data: (try? Data(contentsOf: errFile)) ?? Data(), encoding: .utf8) ?? ""
             return (false, result.isEmpty ? err : result)
+        }
+        return (true, result)
+    }
+
+    /// Starts `codex exec …` and returns success plus its last message (or stderr on errors). Blocking.
+    private static func codex(_ args: [String], cwd: String, process p: Process) -> (Bool, String) {
+        guard let codex = Config.codex else {
+            return (false, "codex CLI not found. Set its path under \"codex\" in ~/.claude/agent-feedback/config.json.")
+        }
+        let tmp = FileManager.default.temporaryDirectory
+        let last = tmp.appendingPathComponent("feedback-codex-\(UUID().uuidString).txt")
+        let errFile = tmp.appendingPathComponent("feedback-run-\(UUID().uuidString).log")
+        FileManager.default.createFile(atPath: errFile.path, contents: nil)
+        defer { [last, errFile].forEach { try? FileManager.default.removeItem(at: $0) } }
+        p.executableURL = codex
+        p.arguments = args + ["-o", last.path]
+        p.currentDirectoryURL = URL(fileURLWithPath: cwd)
+        // npm/nvm installs need their node next to codex.
+        var e = env
+        e["PATH"] = codex.deletingLastPathComponent().path + ":" + (e["PATH"] ?? "")
+        p.environment = e
+        p.standardInput = FileHandle.nullDevice
+        p.standardOutput = FileHandle.nullDevice
+        p.standardError = try? FileHandle(forWritingTo: errFile)
+        do {
+            try p.run()
+        } catch {
+            return (false, "codex could not be started (\(error.localizedDescription)): \(codex.path)")
+        }
+        p.waitUntilExit()
+        let result = (try? String(contentsOf: last, encoding: .utf8)) ?? ""
+        guard p.terminationStatus == 0 else {
+            let err = (try? String(contentsOf: errFile, encoding: .utf8)) ?? ""
+            return (false, String(err.suffix(600)))
         }
         return (true, result)
     }

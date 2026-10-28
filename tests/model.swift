@@ -24,6 +24,11 @@ check("new: two images", item.images.count == 2 && item.imageURLs.allSatisfy { F
 check("new: context per image", item.text.contains("image-2: ") && item.text.contains("https://a.test/2"))
 check("new: English frontmatter", item.text.contains("\nimages: ") && item.text.contains("\nmode: later") && item.field("window") == "1440×900")
 check("new: note", item.note == "1 too far right")
+check("new: agent defaults to claude", item.agent == "claude" && item.text.contains("\nagent: claude"))
+
+let codexMD = store.save(pages: [], note: "Codex task", target: Target(id: "c1", start: root.path, label: "proj (Codex)", agent: "codex"),
+                         dir: dir, existing: nil, now: false)!
+check("codex: agent kept for the runner", FeedbackItem(md: codexMD)!.target.agent == "codex")
 check("new: .gitignore", FileManager.default.fileExists(atPath: dir.appendingPathComponent(".gitignore").path))
 let pages = store.pages(of: item)
 check("edit: marks restored", pages.count == 2 && pages[0].marks.count == 1 && pages[0].marks[0].text == "1")
