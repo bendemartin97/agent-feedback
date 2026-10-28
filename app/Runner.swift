@@ -4,7 +4,8 @@ import AppKit
 /// change the same files out from under each other.
 ///
 /// If the target session is still running, it gets the task as a message in its chat (Claude Code: peer message,
-/// delivered by a short `claude -p` with SendMessage; Codex: `codex queue`): you can see there that and how it works on it.
+/// delivered by a short `claude -p` with SendMessage; Codex: `codex queue`; pi: a mailbox file the pi extension picks up):
+/// you can see there that and how it works on it.
 /// The task is done as soon as the `.md` has a result. If the session no longer runs, a fork of it works
 /// in the background (`--resume … --fork-session`); without a known session, a fresh one in the project.
 final class Runner {
@@ -21,6 +22,8 @@ final class Runner {
         var peer: String?
         /// Content of the `.md` at start; only done once it has changed (matters for "Try again").
         var startText = ""
+        /// Message waiting in a pi session's mailbox until its extension takes it.
+        var mailbox: URL?
     }
 
     private let store: FeedbackStore
@@ -58,6 +61,7 @@ final class Runner {
     func cancel(_ md: URL) {
         for key in queues.keys { queues[key]?.removeAll { same($0.md, md) } }
         if let (key, run) = running.first(where: { same($0.value.job.md, md) }) {
+            if let m = run.mailbox { try? FileManager.default.removeItem(at: m) }
             if let p = run.process {
                 cancelled.insert(key)
                 p.terminate()
@@ -73,6 +77,15 @@ final class Runner {
     func tick() {
         var changed = false
         for (key, run) in running where run.process == nil {
+            // The pi session ended before its extension took the message.
+            if let m = run.mailbox, FileManager.default.fileExists(atPath: m.path), Self.piPid(run.job.target.id) == nil {
+                try? FileManager.default.removeItem(at: m)
+                running[key] = nil
+                store.fail(run.job.md, message: "The pi session ended before it took the item. Try again or assign to another session.")
+                next(key)
+                changed = true
+                continue
+            }
             let dir = URL(fileURLWithPath: key)
             let name = run.job.md.lastPathComponent
             let item = ["inbox", "done"].lazy.compactMap { FeedbackItem(md: dir.appendingPathComponent($0).appendingPathComponent(name)) }.first
@@ -94,6 +107,8 @@ final class Runner {
             deliver(job, to: live.peer, pid: live.pid, key: key)
         } else if job.target.agent == "codex", Self.codexOpen(job.target.id) {
             enqueueInCodex(job, key: key)
+        } else if job.target.agent == "pi", Self.piPid(job.target.id) != nil {
+            enqueueInPi(job, key: key)
         } else {
             fork(job, key: key)
         }
@@ -108,13 +123,23 @@ final class Runner {
     }
 
     /// Peer name of a running interactive session from `~/.claude/sessions/<pid>.json`.
-    static func liveSession(_ id: String) -> String? { live(id)?.peer ?? (codexOpen(id) ? "the Codex session" : nil) }
+    static func liveSession(_ id: String) -> String? {
+        live(id)?.peer ?? (codexOpen(id) ? "the Codex session" : piPid(id) != nil ? "the pi session" : nil)
+    }
 
     /// A Codex session counts as open until its SessionEnd hook removed it (closed, archived or idle for 30 min).
     private static func codexOpen(_ id: String) -> Bool {
         guard !id.isEmpty, let data = try? Data(contentsOf: sessionsDir.appendingPathComponent("\(id).json")),
               let j = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any] else { return false }
         return j["agent"] as? String == "codex"
+    }
+
+    /// Process of an open pi session: its extension writes the pid into the session file and removes the file on quit.
+    private static func piPid(_ id: String) -> Int32? {
+        guard !id.isEmpty, let data = try? Data(contentsOf: sessionsDir.appendingPathComponent("\(id).json")),
+              let j = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any], j["agent"] as? String == "pi",
+              let pid = (j["pid"] as? String).flatMap(Int32.init), kill(pid, 0) == 0 else { return nil }
+        return pid
     }
 
     private static func live(_ id: String) -> (peer: String, pid: Int32)? {
@@ -188,6 +213,23 @@ final class Runner {
         }
     }
 
+    /// Drops the task into the open pi session's mailbox (`queue/<session_id>/*.msg`); its extension sends it into
+    /// the chat, right away if the session is idle, otherwise as the next turn. Then waits for the result.
+    private func enqueueInPi(_ job: Job, key: String) {
+        let dir = appHome.appendingPathComponent("queue").appendingPathComponent(job.target.id)
+        let file = dir.appendingPathComponent("\(Int(Date().timeIntervalSince1970 * 1000)).msg")
+        running[key] = Run(job: job, process: nil, peer: "the pi session", startText: (try? String(contentsOf: job.md, encoding: .utf8)) ?? "",
+                           mailbox: file)
+        do {
+            try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+            try Self.message(for: job.md).write(to: file, atomically: true, encoding: .utf8)
+        } catch {
+            running[key] = nil
+            store.fail(job.md, message: "Could not hand the item to the pi session: \(error.localizedDescription). Try again or assign to another session.")
+            next(key)
+        }
+    }
+
     /// Message for the chat: note and context readable up front, so the chat shows what it is about.
     private static func message(for md: URL) -> String {
         let item = FeedbackItem(md: md)
@@ -223,8 +265,13 @@ final class Runner {
     private func fork(_ job: Job, key: String) {
         let prompt = "work through feedback – only this item: \(job.md.path)"
         let codex = job.target.agent == "codex"
+        let pi = job.target.agent == "pi"
         let args: [String]
-        if codex {
+        if pi {
+            let thinking = Config.raw("pi", in: "efforts")
+            args = ["-p"] + (Config.model("pi").map { ["--model", $0] } ?? []) + (thinking.isEmpty ? [] : ["--thinking", thinking])
+                + (job.target.id.isEmpty ? [] : ["--fork", job.target.id]) + ["/skill:feedback \(prompt)"]
+        } else if codex {
             // Workspace sandbox plus the feedback folder, which can lie outside the checkout.
             let feedback = job.md.deletingLastPathComponent().deletingLastPathComponent().path
             let config = ["-c", "sandbox_mode=\"workspace-write\"", "-c", "sandbox_workspace_write.writable_roots=[\"\(feedback)\"]",
@@ -240,7 +287,8 @@ final class Runner {
         let p = Process()
         running[key] = Run(job: job, process: p, peer: nil)
         DispatchQueue.global(qos: .userInitiated).async {
-            let (ok, output) = codex ? Self.codex(args, cwd: job.cwd, process: p) : Self.claude(args, cwd: job.cwd, process: p)
+            let (ok, output) = codex ? Self.codex(args, cwd: job.cwd, process: p)
+                : pi ? Self.pi(args, cwd: job.cwd, process: p) : Self.claude(args, cwd: job.cwd, process: p)
             DispatchQueue.main.async {
                 self.running[key] = nil
                 if self.cancelled.remove(key) == nil, !ok {
@@ -324,6 +372,40 @@ final class Runner {
             return (false, String(err.suffix(600)))
         }
         return (true, result)
+    }
+
+    /// Starts `pi -p …` and returns success plus its output (or stderr on errors). Blocking.
+    private static func pi(_ args: [String], cwd: String, process p: Process) -> (Bool, String) {
+        guard let pi = Config.pi else {
+            return (false, "pi CLI not found. Set its path under \"pi\" in ~/.claude/agent-feedback/config.json.")
+        }
+        let errFile = FileManager.default.temporaryDirectory.appendingPathComponent("feedback-run-\(UUID().uuidString).log")
+        FileManager.default.createFile(atPath: errFile.path, contents: nil)
+        defer { try? FileManager.default.removeItem(at: errFile) }
+        p.executableURL = pi
+        p.arguments = args
+        p.currentDirectoryURL = URL(fileURLWithPath: cwd)
+        // npm/nvm installs need their node next to pi.
+        var e = env
+        e["PATH"] = pi.deletingLastPathComponent().path + ":" + (e["PATH"] ?? "")
+        p.environment = e
+        // pi prepends piped stdin to the prompt.
+        p.standardInput = FileHandle.nullDevice
+        let out = Pipe()
+        p.standardOutput = out
+        p.standardError = try? FileHandle(forWritingTo: errFile)
+        do {
+            try p.run()
+        } catch {
+            return (false, "pi could not be started (\(error.localizedDescription)): \(pi.path)")
+        }
+        let stdout = String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+        p.waitUntilExit()
+        guard p.terminationStatus == 0 else {
+            let err = (try? String(contentsOf: errFile, encoding: .utf8)) ?? ""
+            return (false, String((err.isEmpty ? stdout : err).suffix(600)))
+        }
+        return (true, stdout)
     }
 
     /// Turns exit code and output into an understandable error message.

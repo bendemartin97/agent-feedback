@@ -1,7 +1,8 @@
 #!/bin/bash
-# agent-feedback setup [--hooks] [--codex]   links hooks and skill (--hooks also adds them to ~/.claude/settings.json,
-#                                            --codex sets up Codex: skill in ~/.agents/skills, hooks in ~/.codex/hooks.json)
-# agent-feedback unlink                      removes those links again
+# agent-feedback setup [--hooks] [--codex] [--pi]   links hooks and skill (--hooks also adds them to ~/.claude/settings.json,
+#                                                   --codex sets up Codex: skill in ~/.agents/skills, hooks in ~/.codex/hooks.json,
+#                                                   --pi sets up pi: skill in ~/.agents/skills, extension in ~/.pi/agent/extensions)
+# agent-feedback unlink                             removes those links again
 set -euo pipefail
 D="$(cd "$(dirname "$(readlink -f "$0")")/.." && pwd)"
 # Homebrew: link through opt/ so the links survive upgrades.
@@ -9,22 +10,25 @@ case "$D" in */Cellar/agent-feedback/*) D="$(cd "$D/../../../../opt/agent-feedba
 HOME_DIR="$HOME/.claude/agent-feedback"
 SETTINGS="$HOME/.claude/settings.json"
 CODEX_HOOKS="$HOME/.codex/hooks.json"
+PI_EXTENSION="${PI_CODING_AGENT_DIR:-$HOME/.pi/agent}/extensions/agent-feedback.ts"
 
 case "${1-}" in
   setup) shift ;;
   unlink)
     rm -f "$HOME/.claude/skills/feedback"
     [ -L "$HOME/.agents/skills/feedback" ] && rm -f "$HOME/.agents/skills/feedback"
+    [ -L "$PI_EXTENSION" ] && rm -f "$PI_EXTENSION"
     rm -rf "$HOME_DIR/bin"
     echo "Links removed. Hook entries containing \"agent-feedback\" in $SETTINGS and $CODEX_HOOKS stay; delete them yourself."
     exit 0 ;;
-  *) sed -n '2,4s/^# //p' "$0"; exit 1 ;;
+  *) sed -n '2,5s/^# //p' "$0"; exit 1 ;;
 esac
-CLAUDE_HOOKS=false CODEX=false
+CLAUDE_HOOKS=false CODEX=false PI=false
 for arg in "$@"; do
   case "$arg" in
     --hooks) CLAUDE_HOOKS=true ;;
     --codex) CODEX=true ;;
+    --pi) PI=true ;;
     *) echo "Unknown option: $arg" >&2; exit 1 ;;
   esac
 done
@@ -77,4 +81,12 @@ if $CODEX; then
   echo "Codex skill: ~/.agents/skills/feedback"
   add_hooks "$CODEX_HOOKS" "$(hooks_for codex)"
   echo "In Codex, run /hooks once and trust the agent-feedback hooks; new Codex sessions register after that."
+fi
+
+if $PI; then
+  mkdir -p "$HOME/.agents/skills" "$(dirname "$PI_EXTENSION")"
+  ln -sfn "$D/skills/feedback" "$HOME/.agents/skills/feedback"
+  ln -sfn "$D/hooks/pi-extension.ts" "$PI_EXTENSION"
+  echo "pi skill: ~/.agents/skills/feedback  ·  pi extension: $PI_EXTENSION"
+  echo "Restart running pi sessions (or /reload); they register with the next prompt."
 fi

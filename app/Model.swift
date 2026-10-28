@@ -195,7 +195,7 @@ struct Page {
     }
 }
 
-/// Where an item belongs: session ID, start directory (for `--resume`), display name and agent (`claude`, `codex`).
+/// Where an item belongs: session ID, start directory (for `--resume`), display name and agent (`claude`, `codex`, `pi`).
 struct Target {
     var id: String
     var start: String

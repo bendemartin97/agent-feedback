@@ -4,6 +4,11 @@ All notable changes to agent-feedback. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+### Added
+
+- pi support (`agent-feedback setup --pi`): an extension registers interactive pi sessions for the picker and reminds them of open items; “Send to the session now” hands the item to a running pi session through a mailbox folder the extension sends into the chat; ended pi sessions get a background fork (`pi -p --fork`). Settings: `pi` CLI path, `models.pi` and `efforts.pi` (`--thinking`).
+- `session.sh` takes an optional `title` and `pid` from the payload.
+
 ### Fixed
 
 - Inbox cards grow with their text and re-wrap when the window is resized; long questions no longer run into the buttons and are shown in full, and every card has the same 14 pt padding on all four sides.

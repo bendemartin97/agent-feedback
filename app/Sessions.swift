@@ -6,9 +6,9 @@ let sessionsDir = appHome.appendingPathComponent("sessions")
 
 /// Settings from `~/.claude/agent-feedback/config.json` (all optional):
 /// `workspaces` – folder of workspaces (`<workspaces>/<name>/<checkout>`) that share one feedback folder;
-/// `claude`, `codex` – paths to the CLIs if they are not in one of the usual places;
-/// `models` – `transport` (delivery into a running Claude chat, default haiku), `claude` and `codex` (background runs,
-/// default: the CLI's own default).
+/// `claude`, `codex`, `pi` – paths to the CLIs if they are not in one of the usual places;
+/// `models` – `transport` (delivery into a running Claude chat, default haiku), `claude`, `codex` and `pi` (background
+/// runs, default: the CLI's own default).
 enum Config {
     private static var values: [String: Any] {
         (try? Data(contentsOf: appHome.appendingPathComponent("config.json")))
@@ -65,6 +65,16 @@ enum Config {
             + versions.map { nvm.appendingPathComponent($0).appendingPathComponent("bin/codex").path }
         return candidates.first { FileManager.default.isExecutableFile(atPath: $0) }.map(URL.init(fileURLWithPath:))
     }
+
+    /// pi CLI: the setting `pi`, otherwise the pi installer's, Homebrew, npm or nvm locations.
+    static var pi: URL? {
+        let nvm = homeURL.appendingPathComponent(".nvm/versions/node")
+        let versions = ((try? FileManager.default.contentsOfDirectory(atPath: nvm.path)) ?? []).sorted(by: >)
+        let candidates = [path("pi"), homeURL.path + "/.local/bin/pi", homeURL.path + "/.pi/agent/bin/pi",
+                          "/opt/homebrew/bin/pi", "/usr/local/bin/pi"].compactMap { $0 }
+            + versions.map { nvm.appendingPathComponent($0).appendingPathComponent("bin/pi").path }
+        return candidates.first { FileManager.default.isExecutableFile(atPath: $0) }.map(URL.init(fileURLWithPath:))
+    }
 }
 
 /// A running agent session, reported by `hooks/session.sh`.
@@ -75,7 +85,7 @@ struct AgentSession {
     let start: String
     let project: String
     let title: String
-    /// `claude` or `codex`.
+    /// `claude`, `codex` or `pi`.
     var agent = "claude"
     /// Last prompt, shortened.
     let prompt: String
@@ -113,6 +123,8 @@ func activeSessions() -> [AgentSession] {
               let data = try? Data(contentsOf: url),
               let j = (try? JSONSerialization.jsonObject(with: data)) as? [String: String],
               let id = j["id"], let root = j["root"], !root.isEmpty else { return nil }
+        // pi sessions report their process; one that is gone (killed, terminal closed) is not offered any more.
+        if let pid = j["pid"].flatMap(Int32.init), kill(pid, 0) != 0 { return nil }
         var s = AgentSession(id: id, root: root, start: j["start"] ?? root, project: j["project"] ?? "",
                              title: j["title"] ?? "", prompt: j["prompt"] ?? "", updated: updated)
         s.agent = j["agent"] ?? "claude"
