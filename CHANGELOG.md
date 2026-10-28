@@ -4,6 +4,8 @@ All notable changes to agent-feedback. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [0.6.0] – 2026-10-28
+
 ### Added
 
 - Placing a number adds a line “n ” to the note, one below the other, ready to describe that spot. Numbers now count across all images of an item.
@@ -75,7 +77,8 @@ First version.
 - Hooks for session registration and open-item hints; skill `feedback` for the agent side.
 - Install and uninstall scripts, tests for hooks and model.
 
-[Unreleased]: https://github.com/bendemartin97/agent-feedback/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/bendemartin97/agent-feedback/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/bendemartin97/agent-feedback/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/bendemartin97/agent-feedback/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/bendemartin97/agent-feedback/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/bendemartin97/agent-feedback/compare/v0.2.0...v0.3.0
