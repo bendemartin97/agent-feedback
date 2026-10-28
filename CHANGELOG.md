@@ -4,6 +4,10 @@ All notable changes to agent-feedback. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+### Fixed
+
+- The editor takes keyboard focus after a capture, also when macOS first hands focus back to the previous app.
+
 ### Changed
 
 - ⌘C in the editor copies the image with its marks (and closes) unless text is selected, also while the note has focus; ⌘S saves it as PNG (was ⇧⌘S).

@@ -435,10 +435,23 @@ final class FeedbackEditor: NSObject, NSWindowDelegate {
     func selectFirstPage() { show(page: 0) }
 
     func show() {
-        NSApp.activate(ignoringOtherApps: true)
-        window.makeKeyAndOrderFront(nil)
+        focus()
         area.fit()
         window.makeFirstResponder(note)
+        // After `screencapture` macOS hands focus back to the previous app and may decline the first request.
+        for delay in [0.15, 0.4] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+                guard let self, !self.finished, !self.window.isKeyWindow else { return }
+                self.focus()
+            }
+        }
+    }
+
+    private func focus() {
+        NSRunningApplication.current.activate(options: [.activateAllWindows])
+        NSApp.activate(ignoringOtherApps: true)
+        window.orderFrontRegardless()
+        window.makeKeyAndOrderFront(nil)
     }
 
     private var canvas: MarkupCanvas? { canvases.indices.contains(current) ? canvases[current] : nil }
