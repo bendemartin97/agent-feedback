@@ -90,8 +90,8 @@ final class Runner {
         guard running[key] == nil, var queue = queues[key], !queue.isEmpty else { return }
         let job = queue.removeFirst()
         queues[key] = queue
-        if !job.target.id.isEmpty, let peer = Self.liveSession(job.target.id) {
-            deliver(job, to: peer, key: key)
+        if !job.target.id.isEmpty, let live = Self.live(job.target.id) {
+            deliver(job, to: live.peer, pid: live.pid, key: key)
         } else {
             fork(job, key: key)
         }
@@ -106,7 +106,9 @@ final class Runner {
     }
 
     /// Peer name of a running interactive session from `~/.claude/sessions/<pid>.json`.
-    static func liveSession(_ id: String) -> String? {
+    static func liveSession(_ id: String) -> String? { live(id)?.peer }
+
+    private static func live(_ id: String) -> (peer: String, pid: Int32)? {
         let dir = homeURL.appendingPathComponent(".claude/sessions")
         for name in (try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? [] where name.hasSuffix(".json") {
             guard let data = try? Data(contentsOf: dir.appendingPathComponent(name)),
@@ -114,13 +116,30 @@ final class Runner {
                   j["sessionId"] as? String == id, j["kind"] as? String == "interactive",
                   let pid = j["pid"] as? Int32, kill(pid, 0) == 0,
                   let peer = j["name"] as? String else { continue }
-            return peer
+            return (peer, pid)
         }
         return nil
     }
 
+    /// Permission flags the session was started with: the sender must be in the same permission mode class,
+    /// otherwise the message waits for a manual confirmation instead of arriving in the chat.
+    private static func permissionArgs(of pid: Int32) -> [String] {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/bin/ps")
+        p.arguments = ["-o", "args=", "-p", String(pid)]
+        let out = Pipe()
+        p.standardOutput = out
+        guard (try? p.run()) != nil else { return [] }
+        let args = String(decoding: out.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
+            .split(separator: " ").map(String.init)
+        p.waitUntilExit()
+        if args.contains("--dangerously-skip-permissions") { return ["--dangerously-skip-permissions"] }
+        if let i = args.firstIndex(of: "--permission-mode"), i + 1 < args.count { return ["--permission-mode", args[i + 1]] }
+        return []
+    }
+
     /// Sends the task into the running session's chat and then waits for its result (see `tick`).
-    private func deliver(_ job: Job, to peer: String, key: String) {
+    private func deliver(_ job: Job, to peer: String, pid: Int32, key: String) {
         running[key] = Run(job: job, process: nil, peer: peer, startText: (try? String(contentsOf: job.md, encoding: .utf8)) ?? "")
         let message = Self.message(for: job.md)
         let prompt = """
@@ -129,7 +148,8 @@ final class Runner {
         Then reply only with OK, or with ERROR: <reason> if sending failed.
         """
         DispatchQueue.global(qos: .userInitiated).async {
-            let (ok, output) = Self.claude(["-p", "--model", "haiku", "--output-format", "json", prompt], cwd: FileManager.default.temporaryDirectory.path)
+            let args = ["-p", "--model", "haiku", "--output-format", "json"] + Self.permissionArgs(of: pid) + [prompt]
+            let (ok, output) = Self.claude(args, cwd: FileManager.default.temporaryDirectory.path)
             let sent = ok && output.trimmingCharacters(in: .whitespacesAndNewlines).uppercased().hasPrefix("OK")
             DispatchQueue.main.async {
                 guard !sent else { self.onChange?(); return }
