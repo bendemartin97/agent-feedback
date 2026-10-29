@@ -42,6 +42,7 @@ echo "Hooks: $HOME_DIR/bin  ·  Skill: ~/.claude/skills/feedback  ·  Settings: 
 # hooks_for <agent>: hook entries in the format shared by Claude Code and Codex.
 hooks_for() {
   jq -n --arg b '~/.claude/agent-feedback/bin' --arg a "$1" '{
+    SessionStart: [{hooks: [{type: "command", command: ($b + "/session.sh update " + $a), timeout: 5}]}],
     UserPromptSubmit: [{hooks: [
       {type: "command", command: ($b + "/session.sh update " + $a), timeout: 5},
       {type: "command", command: ($b + "/feedback-hint.sh"), timeout: 5}]}],
@@ -49,21 +50,22 @@ hooks_for() {
   }'
 }
 
-# add_hooks <file> <entries>: merges the entries under "hooks" unless agent-feedback is already in there.
+# add_hooks <file> <entries>: merges the entries under "hooks" for every event that has no agent-feedback hook yet.
 add_hooks() {
-  if [ -f "$1" ] && grep -q 'agent-feedback' "$1"; then
+  mkdir -p "$(dirname "$1")"
+  [ -f "$1" ] || echo '{}' > "$1"
+  MISSING=$(jq -r --argjson add "$2" '. as $f | [$add | keys[] as $e | select(([$f.hooks[$e][]?.hooks[]?.command] | map(contains("agent-feedback")) | any) | not) | $e] | join(" ")' "$1")
+  if [ -z "$MISSING" ]; then
     echo "Hooks are already set up in $1."
     return
   fi
-  mkdir -p "$(dirname "$1")"
-  [ -f "$1" ] || echo '{}' > "$1"
   cp "$1" "$1.bak-agent-feedback"
-  MERGED=$(jq --argjson add "$2" '
+  MERGED=$(jq --argjson add "$2" --arg missing "$MISSING" '
     .hooks //= {} |
-    reduce ($add | keys[]) as $event (.; .hooks[$event] = ((.hooks[$event] // []) + $add[$event]))' "$1")
+    reduce ($missing | split(" ")[]) as $event (.; .hooks[$event] = ((.hooks[$event] // []) + $add[$event]))' "$1")
   # Write into the existing file so a symlink (e.g. into a dotfiles repo) is preserved.
   printf '%s\n' "$MERGED" > "$1"
-  echo "Hooks added to $1 (backup: $1.bak-agent-feedback)."
+  echo "Hooks added to $1 for $MISSING (backup: $1.bak-agent-feedback)."
 }
 
 if $CLAUDE_HOOKS; then

@@ -1,6 +1,6 @@
 #!/bin/bash
 # Claude Code / Codex hook (pi: called by hooks/pi-extension.ts): reports running sessions to agent-feedback, so the app offers them for selection.
-# Usage: session.sh update|end [claude|codex|pi] (UserPromptSubmit / SessionEnd), hook payload as JSON on stdin.
+# Usage: session.sh update|end [claude|codex|pi] (SessionStart, UserPromptSubmit / SessionEnd), hook payload as JSON on stdin.
 # Writes ~/.claude/agent-feedback/sessions/<session_id>.json with id, agent, root, start, project, title, prompt
 # (plus pid if the payload has one: the pi extension sends it so the app can tell whether the session still runs).
 # root = base for the feedback folder, start = start directory (where the session can be resumed with --resume).

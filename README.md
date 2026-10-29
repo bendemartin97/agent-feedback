@@ -53,11 +53,11 @@ cd agent-feedback
 ./install.sh --hooks
 ```
 
-This builds `~/Applications/AgentFeedback.app`, starts it at login (LaunchAgent), links the hooks to `~/.claude/agent-feedback/bin/` and the skill to `~/.claude/skills/feedback`, and adds three hook entries to `~/.claude/settings.json` (a backup is written next to it). Without `--hooks` the entries are printed for you to add yourself.
+This builds `~/Applications/AgentFeedback.app`, starts it at login (LaunchAgent), links the hooks to `~/.claude/agent-feedback/bin/` and the skill to `~/.claude/skills/feedback`, and adds hook entries to `~/.claude/settings.json` (a backup is written next to it). Without `--hooks` the entries are printed for you to add yourself. Running `agent-feedback setup --hooks` again after an update adds hooks that are new in that version.
 
 On the first screenshot macOS asks for **Screen Recording**, on the first screenshot taken in Chrome for **Automation** (to read the tab URL). If a code-signing identity “Apple Development” exists, the app is signed with it so these permissions survive rebuilds; otherwise it is signed ad hoc and macOS may ask again after each build. Set `AGENT_FEEDBACK_BUNDLE_ID` for `build.sh`/`uninstall.sh` to use your own bundle identifier.
 
-Sessions show up in the app once you have sent at least one prompt in them after installing.
+Sessions show up in the app as soon as they start (sessions that were already running: after their next prompt). This includes Claude Code in VS Code: the extension runs the same hooks, and “Send to the session now” arrives in its chat panel.
 
 ### Codex
 
@@ -155,7 +155,7 @@ The status of an item is the last `**Status:**` line: `implemented`, `nothing to
 | Part | Role |
 |---|---|
 | `app/` | Menu bar app (Swift/AppKit, no dependencies). `./build.sh` builds and (re)starts it. |
-| `hooks/session.sh` | `UserPromptSubmit` / `SessionEnd`: registers running sessions in `~/.claude/agent-feedback/sessions/`. |
+| `hooks/session.sh` | `SessionStart`, `UserPromptSubmit` / `SessionEnd`: registers running sessions in `~/.claude/agent-feedback/sessions/`. |
 | `hooks/feedback-hint.sh` | `UserPromptSubmit`: lists the open items assigned to this session. |
 | `hooks/feedback-dir.sh`, `hooks/common.sh` | Folder rule and settings, shared by hooks and skill. |
 | `hooks/pi-extension.ts` | pi extension: the same registration and hint as the hooks, plus the mailbox for items sent to a running pi session. |

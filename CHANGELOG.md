@@ -4,6 +4,16 @@ All notable changes to agent-feedback. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [0.7.2] – 2026-10-29
+
+### Fixed
+
+- Sessions show up in the picker as soon as they start, also right after `/clear`, `--resume` or a compaction (new `SessionStart` hook); before, a session only appeared with its first prompt. `agent-feedback setup --hooks` (and `--codex`) adds the missing hook to an existing setup.
+
+### Added
+
+- README: works with Claude Code in VS Code (picker and delivery into the chat panel).
+
 ## [0.7.1] – 2026-10-29
 
 ### Changed
@@ -99,7 +109,8 @@ First version.
 - Hooks for session registration and open-item hints; skill `feedback` for the agent side.
 - Install and uninstall scripts, tests for hooks and model.
 
-[Unreleased]: https://github.com/bendemartin97/agent-feedback/compare/v0.7.1...HEAD
+[Unreleased]: https://github.com/bendemartin97/agent-feedback/compare/v0.7.2...HEAD
+[0.7.2]: https://github.com/bendemartin97/agent-feedback/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/bendemartin97/agent-feedback/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/bendemartin97/agent-feedback/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/bendemartin97/agent-feedback/compare/v0.5.0...v0.6.0
