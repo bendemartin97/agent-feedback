@@ -260,7 +260,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func compose(_ pages: [Page]) {
         guard editor == nil else { return }
         let sessions = activeSessions()
-        guard !sessions.isEmpty else { return notify("No running session to attach this to.") }
         let back = Capture.previousApp
         let last = UserDefaults.standard.string(forKey: "lastTarget")
         editor = FeedbackEditor(pages: pages, choices: choices(for: sessions),

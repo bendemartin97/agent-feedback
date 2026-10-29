@@ -520,6 +520,11 @@ final class FeedbackEditor: NSObject, NSWindowDelegate {
             picker.addItem(withTitle: c.target.label)
             picker.lastItem?.subtitle = c.detail
         }
+        if choices.isEmpty {
+            picker.addItem(withTitle: "No running session")
+            picker.isEnabled = false
+            now.isEnabled = false
+        }
         picker.selectItem(at: preselect)
         picker.target = self
         picker.action = #selector(pickSession)
@@ -547,6 +552,7 @@ final class FeedbackEditor: NSObject, NSWindowDelegate {
         let discard = button("Discard", #selector(cancel), "\u{1b}", [])
         let save = button("Save  ⌘↩", #selector(saveIt), "\r")
         save.bezelColor = .controlAccentColor
+        save.isEnabled = !choices.isEmpty
         let buttons = NSStackView(views: [discard, save])
         buttons.distribution = .fillEqually
 
@@ -746,7 +752,10 @@ final class FeedbackEditor: NSObject, NSWindowDelegate {
     }
 
     @objc private func pickSession() {
-        guard choices.indices.contains(picker.indexOfSelectedItem) else { return }
+        guard choices.indices.contains(picker.indexOfSelectedItem) else {
+            sessionDetail.stringValue = "Start an agent session to file this. Copy, save, pin, drag and text recognition work without one."
+            return
+        }
         let c = choices[picker.indexOfSelectedItem]
         sessionDetail.stringValue = c.detail + "\n" + c.dir.path.replacingOccurrences(of: homeURL.path, with: "~")
     }

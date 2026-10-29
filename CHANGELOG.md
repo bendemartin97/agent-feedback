@@ -4,6 +4,12 @@ All notable changes to agent-feedback. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [0.7.1] – 2026-10-29
+
+### Changed
+
+- Capturing works without a running agent session: the editor opens, copy, save, pin, drag and text recognition work as usual, only filing the item stays disabled until a session is running.
+
 ## [0.7.0] – 2026-10-28
 
 ### Added
@@ -93,7 +99,8 @@ First version.
 - Hooks for session registration and open-item hints; skill `feedback` for the agent side.
 - Install and uninstall scripts, tests for hooks and model.
 
-[Unreleased]: https://github.com/bendemartin97/agent-feedback/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/bendemartin97/agent-feedback/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/bendemartin97/agent-feedback/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/bendemartin97/agent-feedback/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/bendemartin97/agent-feedback/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/bendemartin97/agent-feedback/compare/v0.4.0...v0.5.0
