@@ -4,6 +4,7 @@
 // The inbox shows all items with their status: answer questions, accept results or request rework.
 
 import AppKit
+import Security
 
 final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let store = FeedbackStore()
@@ -26,6 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         where other.processIdentifier != me {
             other.forceTerminate()
         }
+        resetStaleGrants()
         NSApp.mainMenu = mainMenu()
         status = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
         if let image = NSImage(named: "menubar") {
@@ -226,6 +228,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         NSPasteboard.general.setString(text, forType: .string)
         let lines = text.split(separator: "\n").count
         notify("📋 Copied \(lines) line\(lines == 1 ? "" : "s") of text")
+    }
+
+    /// Ad-hoc signed builds (Homebrew, build.sh without an Apple Development certificate) get a new signature with
+    /// every build, and macOS keeps the old grant: Screen Recording still shows as on, access is denied, and switching
+    /// it off and on doesn't help. On the first launch of such a build without access, reset our grants so macOS asks
+    /// again and the answer sticks.
+    private func resetStaleGrants() {
+        var code: SecCode?, staticCode: SecStaticCode?, info: CFDictionary?
+        guard SecCodeCopySelf([], &code) == errSecSuccess, let code,
+              SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode,
+              SecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &info) == errSecSuccess,
+              let info = info as? [String: Any], let hash = (info[kSecCodeInfoUnique as String] as? Data)?.base64EncodedString(),
+              let id = Bundle.main.bundleIdentifier else { return }
+        let flags = (info[kSecCodeInfoFlags as String] as? NSNumber)?.uint32Value ?? 0
+        guard flags & SecCodeSignatureFlags.adhoc.rawValue != 0, UserDefaults.standard.string(forKey: "signature") != hash else { return }
+        UserDefaults.standard.set(hash, forKey: "signature")
+        guard !CGPreflightScreenCaptureAccess() else { return }
+        for service in ["ScreenCapture", "AppleEvents"] {
+            try? Process.run(URL(fileURLWithPath: "/usr/bin/tccutil"), arguments: ["reset", service, id]).waitUntilExit()
+        }
     }
 
     private func screenAccess() -> Bool {

@@ -4,6 +4,12 @@ All notable changes to agent-feedback. The format follows [Keep a Changelog](htt
 
 ## [Unreleased]
 
+## [0.7.4] – 2026-10-29
+
+### Fixed
+
+- After an upgrade or rebuild without an “Apple Development” certificate (e.g. Homebrew), Screen Recording no longer shows as allowed while access is denied: the new ad-hoc signature no longer matched the old grant, and switching it off and on didn't help. On the first launch of such a build without access, the app resets its Screen Recording and Automation grants, so macOS asks once and the answer sticks.
+
 ## [0.7.3] – 2026-10-29
 
 ### Fixed
@@ -116,7 +122,8 @@ First version.
 - Hooks for session registration and open-item hints; skill `feedback` for the agent side.
 - Install and uninstall scripts, tests for hooks and model.
 
-[Unreleased]: https://github.com/bendemartin97/agent-feedback/compare/v0.7.3...HEAD
+[Unreleased]: https://github.com/bendemartin97/agent-feedback/compare/v0.7.4...HEAD
+[0.7.4]: https://github.com/bendemartin97/agent-feedback/compare/v0.7.3...v0.7.4
 [0.7.3]: https://github.com/bendemartin97/agent-feedback/compare/v0.7.2...v0.7.3
 [0.7.2]: https://github.com/bendemartin97/agent-feedback/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/bendemartin97/agent-feedback/compare/v0.7.0...v0.7.1

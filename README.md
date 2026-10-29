@@ -55,7 +55,7 @@ cd agent-feedback
 
 This builds `~/Applications/AgentFeedback.app`, starts it at login (LaunchAgent), links the hooks to `~/.claude/agent-feedback/bin/` and the skill to `~/.claude/skills/feedback`, and adds hook entries to `~/.claude/settings.json` (a backup is written next to it). Without `--hooks` the entries are printed for you to add yourself. Running `agent-feedback setup --hooks` again after an update adds hooks that are new in that version.
 
-On the first screenshot macOS asks for **Screen Recording**, on the first screenshot taken in Chrome for **Automation** (to read the tab URL). If a code-signing identity “Apple Development” exists, the app is signed with it so these permissions survive rebuilds; otherwise it is signed ad hoc and macOS may ask again after each build. Set `AGENT_FEEDBACK_BUNDLE_ID` for `build.sh`/`uninstall.sh` to use your own bundle identifier.
+On the first screenshot macOS asks for **Screen Recording**, on the first screenshot taken in Chrome for **Automation** (to read the tab URL). If a code-signing identity “Apple Development” exists, the app is signed with it so these permissions survive rebuilds; otherwise it is signed ad hoc and macOS asks again after each build or upgrade (the app clears the grant of the previous build on its first launch, so the new one sticks). Set `AGENT_FEEDBACK_BUNDLE_ID` for `build.sh`/`uninstall.sh` to use your own bundle identifier.
 
 Sessions show up in the app as soon as they start (sessions that were already running: after their next prompt). This includes Claude Code in VS Code: the extension runs the same hooks, and “Send to the session now” arrives in its chat panel.
 
